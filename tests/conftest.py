@@ -155,6 +155,61 @@ def fetch_order_emails(tmp_path, monkeypatch):
     return module, sanitizer_path, db_path
 
 
+@pytest.fixture
+def flag_anomalies(tmp_path, monkeypatch):
+    """Load check-orders/scripts/flag-anomalies.py with DB_PATH pointing
+    at a tmp_path-rooted seeded SQLite file."""
+    db_path = tmp_path / "messages.db"
+    _seed_orders_db(str(db_path))
+    module = _load(
+        "flag_anomalies_under_test",
+        "skills/check-orders/scripts/flag-anomalies.py",
+    )
+    monkeypatch.setattr(module, "DB_PATH", str(db_path))
+    return module, db_path
+
+
+@pytest.fixture
+def promote_stale_shipped(tmp_path, monkeypatch):
+    """Load check-orders/scripts/promote-stale-shipped.py with DB_PATH
+    pointing at a tmp_path-rooted seeded SQLite file."""
+    db_path = tmp_path / "messages.db"
+    _seed_orders_db(str(db_path))
+    module = _load(
+        "promote_stale_shipped_under_test",
+        "skills/check-orders/scripts/promote-stale-shipped.py",
+    )
+    monkeypatch.setattr(module, "DB_PATH", str(db_path))
+    return module, db_path
+
+
+@pytest.fixture
+def read_last_checked(tmp_path, monkeypatch):
+    """Load check-orders/scripts/read-last-checked.py with DB_PATH pointing
+    at a tmp_path-rooted seeded SQLite file."""
+    db_path = tmp_path / "messages.db"
+    _seed_orders_db(str(db_path))
+    module = _load(
+        "read_last_checked_under_test",
+        "skills/check-orders/scripts/read-last-checked.py",
+    )
+    monkeypatch.setattr(module, "DB_PATH", str(db_path))
+    return module, db_path
+
+
+@pytest.fixture
+def within_days():
+    """Load check-orders/scripts/within-days.py.
+
+    Script imports `from datetime import date` at module level, so tests
+    that need a fixed today() pin `module.date` to a frozen subclass.
+    """
+    return _load(
+        "within_days_under_test",
+        "skills/check-orders/scripts/within-days.py",
+    )
+
+
 class _SanitizerStub:
     """Identity test double for the heartbeat skill's sanitize-email-body.py.
 
