@@ -1,0 +1,38 @@
+name: Review & Publish Tile
+
+permissions:
+  id-token: write
+  contents: write
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Required by jbaruch/coding-policy/.github/actions/skill-review:
+          # the action runs `git diff $BEFORE..HEAD` to find changed skills.
+          fetch-depth: 0
+
+      - uses: tesslio/setup-tessl@v2
+        with:
+          token: ${{ secrets.TESSL_TOKEN }}
+
+      # Reviews only the skills whose files changed in this push.
+      - name: Skill review (changed only)
+        uses: jbaruch/coding-policy/.github/actions/skill-review@b63f13ea80e92c784cf71fc74ed98f71b15f2aa2 # v0.x
+        with:
+          threshold: '85'
+
+      - name: Lint tile
+        run: tessl tile lint .
+
+      - uses: tesslio/patch-version-publish@v1
+        with:
+          token: ${{ secrets.TESSL_TOKEN }}

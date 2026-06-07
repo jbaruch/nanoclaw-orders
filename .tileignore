@@ -1,0 +1,54 @@
+# Exclude repo-only files from the published Tessl tile per
+# `jbaruch/coding-policy: context-artifacts` ("Use `.tileignore` to
+# exclude build artifacts and CI files from the published tile").
+#
+# The tile ships: tile.json, README.md, CHANGELOG.md, LICENSE,
+# rules/, skills/. Everything below is dev / CI / runtime state
+# that has no place in the published artifact.
+
+# CI / build / test infrastructure
+.github/
+tests/
+pyproject.toml
+requirements-dev.txt
+
+# Python build artifacts
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Repo hygiene files
+.gitignore
+.gitattributes
+.env
+.env.local
+# Note: .env.example IS published — README links to it as the canonical
+# env-var contract for consumers (per `coding-policy: no-secrets`
+# "Document Required Variables")
+
+# Tessl consumer-side install state (dev-time only, gitignored)
+.tessl/
+tessl.json
+.claude/
+.agents/
+.codex/
+.gemini/
+.mcp.json
+AGENTS.md
+CLAUDE.md
+.github/skills/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~

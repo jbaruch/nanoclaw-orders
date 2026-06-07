@@ -1,0 +1,195 @@
+---
+name: check-orders
+description: Fetches order-related emails from Gmail, updates the orders SQLite table, and flags recent anomalies — cancellations/refunds, large purchases until delivered, and overdue deliveries (statuses, dollar threshold, and age cutoffs owned by flag-anomalies.py). Silent on normal order flow; older flagged events age out automatically to keep the alert channel signal-only. Use when the user asks about order status, order tracking, order emails, shipment status, purchase alerts, or needs to sync Gmail order data with the orders database.
+---
+
+# Check Orders
+
+Process steps in order. Do not skip ahead.
+
+You are AyeAye, Baruch's assistant. Check for order updates from Gmail and update the orders DB.
+
+## Core Rule — Never read raw Gmail into the session
+
+Raw bodies can carry invisible-Unicode padding that blows up the context window. Step 2's fetch script fetches over Composio REST and sanitizes inside the container; only its sanitized stdout reaches you. Never call `GMAIL_FETCH_EMAILS` (MCP or REST) yourself from the session. Background: `/workspace/group/nanoclaw-poison-defense.md`.
+
+## Step 1 — Read last_checked
+
+Orders live in `orders` table of `/workspace/store/messages.db`. Markers live in `orders_metadata` kv table.
+
+```bash
+python3 scripts/read-last-checked.py
+```
+
+Stdout: `{"last_checked": "<iso>" | null}` (`null` on fresh DB). This read is informational; `fetch-order-emails.py` re-reads the cursor for the `after:` filter and Step 3 stamps write-ahead.
+
+## Step 2 — Fetch order-related emails (sanitized, over REST)
+
+Query strings, cross-query dedup, in-container sanitization, compact-row projection, and the cursor-based `after:` filter live in the fetch script. It fetches via Composio's v3 REST endpoint and sanitizes before printing — raw bodies never enter the session (Core Rule).
+
+```bash
+python3 scripts/fetch-order-emails.py
+```
+
+Reads `orders_metadata.last_checked` and appends ` after:YYYY/MM/DD` to each query when set (unbounded otherwise). Loads the shared sanitizer from `tessl__heartbeat/scripts/sanitize-email-body.py`. Stdout:
+
+```json
+{"messages": [{"messageId": "...", "from": "...", "to": "...", "subject": "...", "snippet": "...", "body": "...", "date": "...", "labelIds": [...]}], "errors": [{"query": "...", "error": "..."}]}
+```
+
+`messages` is the sanitized, deduped input for Step 4. Exits non-zero with no stdout (fail-closed) if the shared sanitizer or Composio REST helper can't be loaded, or if `COMPOSIO_API_KEY` / `COMPOSIO_USER_ID` are unset — the stderr names the remediation.
+
+### Error Handling
+
+| Failure | Action |
+|---|---|
+| `fetch-order-emails.py` exits non-zero (sanitizer/REST-helper unavailable, or `COMPOSIO_API_KEY` / `COMPOSIO_USER_ID` unset) | Hard fail. Do NOT fall back to direct `GMAIL_FETCH_EMAILS`. Report the skip (with the script's stderr remediation) via `mcp__nanoclaw__send_message`. Skip Step 3. |
+| All 5 queries error out (`len(errors) == 5`) | Skip run. Skip Step 3. Return nothing. |
+| Some queries errored, others returned (data or empty) | Proceed. Log errored queries. Run Step 3. |
+| All 5 queries succeeded with zero messages | Proceed. Run Step 3 (cursor must advance). |
+| All 5 queries succeeded with messages | Proceed. Run Step 3. |
+| Script prints non-parseable JSON | Skip Step 3, no metadata update. Next invocation retries. |
+
+## Step 3 — Stamp cursor write-ahead
+
+After Step 2 returns parseable JSON from a successful Gmail query, stamp `orders_metadata.last_checked` to current UTC:
+
+```bash
+python3 scripts/write-orders-metadata.py
+```
+
+Write-ahead rationale: `skills/check-orders/references/write-ahead-rationale.md`.
+
+Proceed immediately to Step 4.
+
+## Step 4 — Parse each email
+
+Extract fields per these maps:
+
+**Source** (sender domain): amazon.com → `"amazon"`, shopify.com → `"shopify"`, shop.app → `"shop"`, else → `"other"`.
+
+**Status** (subject/snippet keywords):
+
+| Keywords | Status |
+|----------|--------|
+| "on the way", "shipped" | `"shipped"` |
+| "has been delivered", "delivered" | `"delivered"` |
+| "cancelled", "canceled" | `"cancelled"` |
+| "refunded", "refund" | `"refunded"` |
+| "order confirmation", "ordered" | `"ordered"` |
+| no match | `"unknown"` |
+
+**Remaining fields:**
+
+| Field | Extraction rule |
+|-------|----------------|
+| `amount` | Dollar amount from subject or snippet (`$XX.XX`, `Total: $XX`); if multiple, use largest; default `0` |
+| `currency` | `"USD"` |
+| `description` | Subject stripped of boilerplate (e.g. remove "Your Amazon.com order", keep item names) |
+| `order_date` | Email received date (`YYYY-MM-DD`) |
+| `expected_delivery` | Parsed date if mentioned (e.g. "arrives by Dec 5"); `null` otherwise |
+| `email_message_id` | Gmail message ID |
+| `to_address` | The `To:` header (used by Step 6 exclusions) |
+
+## Step 5 — Upsert each parsed email into the orders table
+
+Compute the `id`:
+
+```bash
+python3 scripts/compute-order-id.py <source> <order_date> <description>
+```
+
+Produces `{source}-{order_date}-{hash}` where `hash` is the first 8 hex chars of SHA-1 over UTF-8-encoded `description` bytes verbatim (no trimming, case-folding, or normalisation).
+
+Pipe a single-line JSON object with the parsed fields plus the computed `id`:
+
+```bash
+echo '{"id": "...", "source": "...", "status": "...", "amount": 19.99, "currency": "USD", "description": "...", "order_date": "2026-04-29", "expected_delivery": null, "email_message_id": "...", "to_address": "..."}' \
+  | python3 scripts/apply-order.py
+```
+
+Parameter-bound `INSERT ... ON CONFLICT(email_message_id) DO UPDATE SET status = excluded.status, last_updated = excluded.last_updated WHERE orders.status != excluded.status`. Stdout: `{"action": "inserted" | "status_updated" | "noop", "id": "..."}`. New rows: `flagged = 0`, `flag_reason = NULL`. Historical rows with NULL `to_address` skip Step 6's exclusion check.
+
+## Step 6 — Apply user-preference exclusions
+
+Unflag orders matching exclusions. Excluded orders are `flagged: 0`, `flag_reason: NULL`. Pass exclusions via `EXCLUDED_IDS` env var to Step 8.
+
+**Enforcement:** the table below is the runtime-authoritative rule set; Step 6 matches it directly, not `/workspace/trusted/user_preferences.md`. When `user_preferences.md` changes its "Do NOT flag these" list, update this table in the same change.
+
+**Matching rules on `to_address`:**
+- Parse out any `"Display Name" <email@domain>` wrapping; compare against the bare `email@domain` part
+- A `To:` with multiple comma-separated recipients matches if ANY recipient matches the rule
+- Email comparisons are case-insensitive on local-part and domain
+- `description` matching is substring, case-insensitive
+
+| Exclusion | Match rule |
+|-----------|------------|
+| Amazon noise via `amir@sadogursky.com` family address | `source == "amazon"` AND ( any extracted address in `to_address` equals `"amir@sadogursky.com"` case-insensitive, OR `description` contains `"Amir"` / `"(Amir)"` case-insensitive ) |
+
+Pipe matching ids (one per line) into the unflag script:
+
+```bash
+printf '%s\n' "<id1>" "<id2>" ... \
+  | python3 scripts/unflag-orders.py
+```
+
+Parameter-bound `UPDATE orders SET flagged = 0, flag_reason = NULL WHERE id = ?` per id in one transaction. Emits `{"unflagged_existing": <int>, "missing_ids": <int>}`.
+
+Collect the same id list as a comma-separated string for Step 8's `EXCLUDED_IDS`.
+
+## Step 7 — Auto-promote stale shipped/ordered orders
+
+Some senders (e.g. Chewy Autoship) never send a delivered email; status stays `shipped` and Step 8's "Overdue delivery" rule keeps firing. Promote stale rows to synthetic terminal `assumed_delivered`:
+
+```bash
+python3 scripts/promote-stale-shipped.py
+```
+
+Eligibility (all three must hold):
+- `status IN ('shipped', 'ordered')`
+- `expected_delivery` non-null AND (ISO date ≥10 days before today, OR malformed/free-text)
+- `last_updated` ≥10 days ago
+
+Stdout: `{"promoted": <int>, "ids": [...]}`. Idempotent. `assumed_delivered` is synthetic terminal — Step 8 never flags it. Future emails still update via Step 5's merge rule.
+
+## Step 8 — Apply anomaly flagging
+
+Flag every non-excluded row. Pass the Step 6 id list via `EXCLUDED_IDS`:
+
+```bash
+EXCLUDED_IDS="<id1>,<id2>,..." \
+  python3 scripts/flag-anomalies.py
+```
+
+Empty `EXCLUDED_IDS` is fine. Stdout: `{"flagged": <int>, "unflagged": <int>, "ids_flagged": [...], "ids_unflagged": [...]}`.
+
+Which statuses flag, the large-purchase dollar threshold, and the per-status age cutoffs are owned by `scripts/flag-anomalies.py` — its module-docstring rule table and `_classify()` are the single source of truth.
+
+Flow effects: each matching row gets `flagged=1` plus a `flag_reason`; rows past their cutoff (or that no longer match) are unflagged in the same pass; rows that never matched stay unflagged. The `ids_flagged` list drives the Step 10 report.
+
+## Step 9 — Re-stamp orders_metadata (success-path refresh)
+
+```bash
+python3 scripts/write-orders-metadata.py
+```
+
+Same script as Step 3, re-run on the happy path. Idempotent. Stdout: `{"last_checked": "<iso>", "last_updated": "<iso>"}`.
+
+## Step 10 — Report flagged items
+
+```bash
+python3 scripts/get-flagged-orders.py
+```
+
+Stdout is a JSON array (possibly empty) of `{description, flag_reason, source, order_date}` objects ordered by `order_date` descending. If `[]` → stay silent.
+
+If there are flagged orders, send via `mcp__nanoclaw__send_message`:
+
+Format (Telegram HTML):
+```
+<b>📦 Order alerts:</b>
+
+• <b>[description]</b> — [flag_reason] (<i>[source], [order_date]</i>)
+```
+
+One bullet per flagged order. Keep it concise. Finish here.

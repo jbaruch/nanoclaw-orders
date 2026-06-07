@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.eggs/
+
+# Build / dist
+build/
+dist/
+
+# Node / vendored deps
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*~
+
+# Secrets — never committed
+.env
+.env.local
+
+# Tessl consumer-side scaffolding (dev-time local install via `tessl install`).
+# The tile itself ships from tile.json; coding-policy is pulled at scaffold
+# time for the install-reviewer skill, not committed. Matches the
+# `nanoclaw-core` public-tile pattern (no committed `.tessl/`, `tessl.json`,
+# or agent-rule pointer files).
+tessl.json
+.tessl/
+.claude/
+.agents/
+.codex/
+.gemini/
+.mcp.json
+AGENTS.md
+CLAUDE.md
+.github/skills/
