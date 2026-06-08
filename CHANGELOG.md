@@ -2,6 +2,10 @@
 
 All notable changes to this tile are documented here.
 
+### Changed — pin `nightly-order-sync` to Haiku via `agentModel:` (`jbaruch/nanoclaw#613`)
+
+Order-email data sync is triage, not synthesis. Pin `agentModel: "claude-haiku-4-5-20251001"` in the skill's frontmatter so it stops defaulting to Opus (cadence-registry plumbs it to `scheduled_tasks.agent_model`). Full model ID matches the gateway `model_list` row. Part of the #613 Claude tier-down.
+
 ## 0.1.0
 
 ### Added
