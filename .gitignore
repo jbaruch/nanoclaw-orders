@@ -13,6 +13,10 @@ __pycache__/
 build/
 dist/
 
+# Virtualenvs
+.venv/
+venv/
+
 # Node / vendored deps
 node_modules/
 
