@@ -31,5 +31,11 @@ jobs:
           python -m ruff check tests/ skills/
           python -m ruff format --check tests/ skills/
 
+      # Type check runs before tests per `jbaruch/coding-policy:
+      # language-diagnostics` — the diagnostics engine gates merge at zero
+      # findings, in the same fast-and-cheap slot as ruff and ahead of pytest.
+      - name: Type check (pyright)
+        run: python -m pyright skills/ tests/
+
       - name: Pytest
         run: python -m pytest
