@@ -34,8 +34,9 @@ jobs:
       # Type check runs before tests per `jbaruch/coding-policy:
       # language-diagnostics` — the diagnostics engine gates merge at zero
       # findings, in the same fast-and-cheap slot as ruff and ahead of pytest.
+      # `--warnings` makes warnings (not just errors) fail the step's exit code.
       - name: Type check (pyright)
-        run: python -m pyright skills/ tests/
+        run: python -m pyright --warnings skills/ tests/
 
       - name: Pytest
         run: python -m pytest
