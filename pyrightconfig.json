@@ -1,0 +1,7 @@
+{
+  "executionEnvironments": [
+    { "root": "skills/check-orders", "extraPaths": ["skills/check-orders"] },
+    { "root": "skills/nightly-order-sync", "extraPaths": ["skills/nightly-order-sync"] },
+    { "root": "tests", "extraPaths": ["skills/check-orders", "skills/nightly-order-sync"] }
+  ]
+}

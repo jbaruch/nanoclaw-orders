@@ -1,0 +1,25 @@
+version: 2
+updates:
+  # Keep dev tooling (pyright, ruff, pytest) on the latest release without
+  # giving up reproducibility: deps stay hard-pinned in requirements-dev.txt,
+  # and Dependabot opens a PR for each new version so the bump is reviewed and
+  # CI proves it green before it lands — instead of a floating spec that can
+  # break CI on an unrelated PR.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore(deps)
+    labels:
+      - dependencies
+
+  # Keep the Actions used by the test workflow current on the same terms.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore(ci)
+    labels:
+      - dependencies
