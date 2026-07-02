@@ -55,7 +55,9 @@ def stamp(cursor_path: Path, now_utc: datetime) -> dict:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(
+        description="Stamp the success cursor for `tessl__nightly-order-sync`."
+    )
     parser.add_argument(
         "--cursor",
         default=os.environ.get("NIGHTLY_ORDER_SYNC_CURSOR", DEFAULT_CURSOR_PATH),
