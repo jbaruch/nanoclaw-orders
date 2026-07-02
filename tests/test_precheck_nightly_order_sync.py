@@ -20,7 +20,8 @@ def precheck():
     spec = importlib.util.spec_from_file_location(
         "precheck_nightly_order_sync_under_test", REPO_ROOT / SCRIPT_REL
     )
-    assert spec is not None and spec.loader is not None, f"cannot load {SCRIPT_REL}"
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load {SCRIPT_REL}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module

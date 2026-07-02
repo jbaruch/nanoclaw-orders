@@ -9,7 +9,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 def _load(name: str, relpath: str):
     spec = importlib.util.spec_from_file_location(name, REPO_ROOT / relpath)
-    assert spec is not None and spec.loader is not None, f"cannot load {relpath}"
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load {relpath}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
