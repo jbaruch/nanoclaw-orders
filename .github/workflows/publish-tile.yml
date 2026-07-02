@@ -33,6 +33,13 @@ jobs:
       - name: Lint tile
         run: tessl tile lint .
 
+      # Stamps the top un-headed `### ` CHANGELOG blocks with the
+      # `## <version> — <date>` heading the publish step is about to assign,
+      # per jbaruch/coding-policy: context-artifacts "CHANGELOG Hygiene".
+      # Must run immediately before patch-version-publish.
+      - name: Stamp CHANGELOG
+        uses: jbaruch/coding-policy/.github/actions/stamp-changelog@de18c1b923ed55afed7fb4c96efe35926c0e7bbf # main
+
       - uses: tesslio/patch-version-publish@v1
         with:
           token: ${{ secrets.TESSL_TOKEN }}
