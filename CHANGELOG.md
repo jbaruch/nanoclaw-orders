@@ -2,9 +2,41 @@
 
 All notable changes to this tile are documented here.
 
+## 0.1.6 — 2026-07-02
+
+### Changed — backfill CHANGELOG entries for released versions 0.1.1–0.1.5
+
+Versions 0.1.1, 0.1.3, and 0.1.4 shipped without CHANGELOG entries, and the 0.1.2 agentModel note sat un-versioned at the top of this file. Every released version now has a heading; the entries are reconstructed from the merge commits that produced each release. No code change.
+
+## 0.1.5 — 2026-07-02
+
+### Added — gate language diagnostics in CI with pyright (`jbaruch/nanoclaw-orders#2`)
+
+Adopt a pyright zero-findings gate: `pyrightconfig.json` for the skill-bundle layout and a `python -m pyright --warnings skills/ tests/` CI step after ruff, before pytest (`--warnings` fails on warnings too). The first run surfaced two real bugs — `stamp-cursor.py` built its argparse description from `__doc__.splitlines()[0]`, which crashes at startup under `python -OO` (docstrings stripped to `None`), and the test module loaders subscripted a `ModuleSpec | None`. Fixed with a literal description and explicit `if ...: raise` guards, no suppressions. Adds a weekly Dependabot for the pinned dev toolchain.
+
+## 0.1.4 — 2026-07-02
+
+### Changed — refresh coding-policy PR review workflows (`jbaruch/nanoclaw-orders#4`)
+
+Upgrade the gh-aw `jbaruch/coding-policy` PR review workflow templates to the latest published version.
+
+## 0.1.3 — 2026-07-01
+
+### Changed — refresh coding-policy PR review workflows (`jbaruch/nanoclaw-orders#3`)
+
+Upgrade the gh-aw `jbaruch/coding-policy` PR review workflow templates to the latest published version.
+
+## 0.1.2 — 2026-06-08
+
 ### Changed — pin `nightly-order-sync` to Haiku via `agentModel:` (`jbaruch/nanoclaw#613`)
 
 Order-email data sync is triage, not synthesis. Pin `agentModel: "claude-haiku-4-5-20251001"` in the skill's frontmatter so it stops defaulting to Opus (cadence-registry plumbs it to `scheduled_tasks.agent_model`). Full model ID matches the gateway `model_list` row. Part of the #613 Claude tier-down.
+
+## 0.1.1 — 2026-06-07
+
+### Added — script tests omitted from the initial scaffold
+
+Add the script unit tests that were left out of the initial tile scaffold.
 
 ## 0.1.0
 
