@@ -120,6 +120,19 @@ def get_flagged_orders(tmp_path, monkeypatch):
 
 
 @pytest.fixture
+def render_order_alerts():
+    """Load check-orders/scripts/render-order-alerts.py.
+
+    Pure stdin→stdout renderer — no module-level state to redirect.
+    Tests feed stdin via monkeypatch and read stdout via capsys.
+    """
+    return _load(
+        "render_order_alerts_under_test",
+        "skills/check-orders/scripts/render-order-alerts.py",
+    )
+
+
+@pytest.fixture
 def compute_order_id():
     """Load check-orders/scripts/compute-order-id.py.
 
