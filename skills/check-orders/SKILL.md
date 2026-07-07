@@ -178,18 +178,15 @@ Same script as Step 3, re-run on the happy path. Idempotent. Stdout: `{"last_che
 ## Step 10 — Report flagged items
 
 ```bash
-python3 scripts/get-flagged-orders.py
+python3 scripts/get-flagged-orders.py | python3 scripts/render-order-alerts.py
 ```
 
-Stdout is a JSON array (possibly empty) of `{description, flag_reason, source, order_date}` objects ordered by `order_date` descending. If `[]` → stay silent.
+`get-flagged-orders.py` emits the flagged rows as a JSON array ordered by `order_date` descending; `render-order-alerts.py` HTML-escapes every field (`description` derives from sender-controlled email text) and prints the complete Telegram HTML message — one bullet per order, shaped:
 
-If there are flagged orders, send via `mcp__nanoclaw__send_message`:
-
-Format (Telegram HTML):
 ```
 <b>📦 Order alerts:</b>
 
 • <b>[description]</b> — [flag_reason] (<i>[source], [order_date]</i>)
 ```
 
-One bullet per flagged order. Keep it concise. Finish here.
+Empty stdout → no flagged orders → stay silent. Otherwise send the script's stdout verbatim via `mcp__nanoclaw__send_message` — never rebuild or reformat the message by hand; the escaping is what keeps a hostile subject line from breaking the Telegram HTML parse or injecting tags. Finish here.

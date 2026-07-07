@@ -2,6 +2,10 @@
 
 All notable changes to this tile are documented here.
 
+### Fixed — HTML-escape untrusted fields in Telegram order alerts (`jbaruch/nanoclaw-orders#19`)
+
+Step 10 interpolated raw `description` / `flag_reason` / `source` / `order_date` into Telegram HTML. `description` derives from email subject text — untrusted, sender-controlled — so a subject carrying `<`, `>`, `&`, or tags could break the message parse (suppressing the alert entirely) or inject links/formatting into the notification. New `render-order-alerts.py` owns the rendering: it HTML-escapes every field and prints the ready-to-send message; the SKILL pipes `get-flagged-orders.py` into it and sends stdout verbatim. Hostile-input tests cover `A&B <tag>` and `</b><a href="...">x</a>` descriptions.
+
 ## 0.1.11 — 2026-07-07
 
 ### Fixed — backfill missing release entries and guard the version/CHANGELOG sync (`jbaruch/nanoclaw-orders#17`)
