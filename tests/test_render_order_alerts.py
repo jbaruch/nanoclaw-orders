@@ -111,3 +111,10 @@ def test_non_array_payload_exits_1(render_order_alerts, monkeypatch, capsys):
     assert code == 1
     assert out == ""
     assert "expected a JSON array" in err
+
+
+def test_non_object_array_element_exits_1(render_order_alerts, monkeypatch, capsys):
+    code, out, err = _run(render_order_alerts, monkeypatch, capsys, '[1, "x"]')
+    assert code == 1
+    assert out == ""
+    assert "every array element must be an order object" in err

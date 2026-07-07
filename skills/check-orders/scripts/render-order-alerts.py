@@ -80,6 +80,14 @@ def main() -> int:
             f"output directly into this script.\n"
         )
         return 1
+    non_dicts = sorted({type(o).__name__ for o in orders if not isinstance(o, dict)})
+    if non_dicts:
+        sys.stderr.write(
+            f"render-order-alerts: every array element must be an order "
+            f"object; got {', '.join(non_dicts)}. Pipe get-flagged-orders.py "
+            f"output directly into this script.\n"
+        )
+        return 1
     message = render(orders)
     if message:
         sys.stdout.write(message + "\n")
