@@ -24,8 +24,8 @@ HEADING_RE = re.compile(r"^## (\d+\.\d+\.\d+)(?=\s|$)", re.MULTILINE)
 
 
 def test_first_changelog_heading_matches_tile_version():
-    tile_version = json.loads((REPO_ROOT / "tile.json").read_text())["version"]
-    changelog = (REPO_ROOT / "CHANGELOG.md").read_text()
+    tile_version = json.loads((REPO_ROOT / "tile.json").read_text(encoding="utf-8"))["version"]
+    changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     match = HEADING_RE.search(changelog)
     assert match is not None, (
         "CHANGELOG.md has no '## X.Y.Z' release heading at all — restore the "
