@@ -2,6 +2,8 @@
 
 All notable changes to this tile are documented here.
 
+## 0.1.10 — 2026-07-07
+
 ### Changed — bump ruff to 0.15.20 and reformat (`jbaruch/nanoclaw-orders#16`)
 
 Land the ruff 0.7.4 → 0.15.20 toolchain bump together with the mechanical reformat it forces on three files (implicit string-concat collapse, assert-message wrapping). Under the previously pinned 0.7.4 the tree was format-clean — the drift issue #16 reported reproduces only under newer ruff, which is exactly what was blocking Dependabot's ruff bump PR #10 on the format gate. Bump and reformat land as one PR; either half alone leaves CI red. Supersedes PR #10.
