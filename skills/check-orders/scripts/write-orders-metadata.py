@@ -57,9 +57,7 @@ def _ensure_schema_version_column(conn: sqlite3.Connection) -> None:
     columns = [row[1] for row in conn.execute("PRAGMA table_info(orders_metadata)")]
     if "schema_version" in columns:
         return
-    conn.execute(
-        "ALTER TABLE orders_metadata " "ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1"
-    )
+    conn.execute("ALTER TABLE orders_metadata ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1")
 
 
 def _resolve_timestamp() -> str:
@@ -76,7 +74,7 @@ def _resolve_timestamp() -> str:
         datetime.fromisoformat(candidate.replace("Z", "+00:00"))
     except ValueError as exc:
         sys.stderr.write(
-            f"write-orders-metadata: invalid ISO-8601 timestamp " f"{candidate!r}: {exc}\n"
+            f"write-orders-metadata: invalid ISO-8601 timestamp {candidate!r}: {exc}\n"
         )
         sys.exit(2)
     return candidate

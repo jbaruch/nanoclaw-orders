@@ -54,7 +54,7 @@ def main() -> int:
         with conn:
             for order_id in ids:
                 cur = conn.execute(
-                    "UPDATE orders SET flagged = 0, flag_reason = NULL " "WHERE id = ?",
+                    "UPDATE orders SET flagged = 0, flag_reason = NULL WHERE id = ?",
                     (order_id,),
                 )
                 # `cur.rowcount` returns the number of rows the WHERE
