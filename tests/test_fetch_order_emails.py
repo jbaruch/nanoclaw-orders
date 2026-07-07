@@ -14,23 +14,22 @@ Locks down the documented contract per `coding-policy: testing-standards`:
     Gmail's AND-binds-tighter-than-OR parsing can't leak
   - `_read_last_checked` reads the cursor from DB_PATH, None on miss
   - `main()` exits 2 with a stderr diagnostic and no stdout when the
-    shared sanitizer can't be loaded (fail-closed)
+    shared sanitizer, the REST helper, or the Composio credentials are
+    unavailable (fail-closed) — exercised against the local fakes in
+    tests/fakes/, which mirror the heartbeat modules' load surface
+  - the loaded sanitizer runs on every message BEFORE projection (the
+    sanitizer's own body-cap / invisible-unicode behavior is covered
+    in jbaruch/nanoclaw-admin's heartbeat suite; this tile owns the
+    integration contract that raw fields never reach the projection
+    unsanitized)
 """
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
-import pytest
-
-# The heartbeat skill owns sanitize-email-body.py + composio-rest.py;
-# fetch-order-emails.py loads them at runtime from the co-loaded
-# `tessl__heartbeat` tile mount. This tile does not ship them, so tests
-# that assert the sanitizer's own behavior or load the real heartbeat
-# files are skipped here — that coverage lives in jbaruch/nanoclaw-admin's
-# heartbeat suite. Revisit when jbaruch/nanoclaw#639 rewrites the fetch path.
-_HEARTBEAT_DEP = (
-    "exercises heartbeat-owned sanitizer/composio-rest; covered in admin "
-    "heartbeat suite (cross-tile dep, nanoclaw#639)"
-)
+_FAKES = Path(__file__).resolve().parent / "fakes"
+FAKE_SANITIZER = str(_FAKES / "sanitize-email-body.py")
+FAKE_COMPOSIO_REST = str(_FAKES / "composio-rest.py")
 
 
 def _ok(messages):
@@ -109,31 +108,22 @@ def test_sender_and_to_field_fallbacks(fetch_order_emails, sanitize_email_body):
     assert row["to"] == "me@b.com"
 
 
-@pytest.mark.skip(reason=_HEARTBEAT_DEP)
-def test_body_capped_by_sanitizer(fetch_order_emails, sanitize_email_body):
+def test_sanitizer_runs_before_projection(fetch_order_emails):
+    """Integration contract: every kept message passes through the
+    loaded sanitizer BEFORE the compact-row projection reads its
+    body-ish fields. The sanitizer's own body-cap / invisible-unicode
+    behavior is heartbeat's (tested in admin's suite); what this tile
+    owns is that the projection only ever sees post-sanitizer state —
+    a marking sanitizer double proves the ordering."""
     module, _, _ = fetch_order_emails
-    sanitize = sanitize_email_body.sanitize_message
-    # The sanitizer caps body-ish fields at max_len=2000 (+ " [...]" marker)
-    # before the projection's secondary [:4000] guard, so a 5000-char body
-    # comes back truncated well under 4000 and marked.
-    msg = {"messageId": "m", "subject": "S", "messageText": "x" * 5000}
-    result = module.fetch_order_emails(_fake_execute({"q": _ok([msg])}), sanitize, ["q"])
-    body = result["messages"][0]["body"]
-    assert len(body) <= 4000
-    assert body.endswith(" [...]")
 
+    def marking_sanitize(msg):
+        msg["messageText"] = "SANITIZED::" + str(msg.get("messageText"))
+        return msg
 
-@pytest.mark.skip(reason=_HEARTBEAT_DEP)
-def test_invisible_unicode_padding_is_sanitized(fetch_order_emails, sanitize_email_body):
-    module, _, _ = fetch_order_emails
-    sanitize = sanitize_email_body.sanitize_message
-    # U+03CF run is the documented poison vector; the sanitizer collapses
-    # runs of 4+ identical non-ASCII chars to one.
-    poisoned = "Order " + ("Ϗ" * 60) + "shipped"
-    msg = {"messageId": "m", "subject": "S", "messageText": poisoned}
-    result = module.fetch_order_emails(_fake_execute({"q": _ok([msg])}), sanitize, ["q"])
-    body = result["messages"][0]["body"]
-    assert "ϏϏϏϏ" not in body, "padding run must be collapsed"
+    msg = {"messageId": "m", "subject": "S", "messageText": "raw body"}
+    result = module.fetch_order_emails(_fake_execute({"q": _ok([msg])}), marking_sanitize, ["q"])
+    assert result["messages"][0]["body"] == "SANITIZED::raw body"
 
 
 def test_snippet_dict_coerced_to_text(fetch_order_emails, sanitize_email_body):
@@ -261,13 +251,14 @@ def test_main_fail_closed_when_sanitizer_missing(fetch_order_emails, capsys):
     assert "Refusing" in captured.err
 
 
-@pytest.mark.skip(reason=_HEARTBEAT_DEP)
 def test_main_fail_closed_when_credentials_missing(fetch_order_emails, monkeypatch, capsys):
     module, _, _ = fetch_order_emails
-    # Point the sanitizer at the real file so loading succeeds and main()
-    # reaches the credential pre-flight; then drop the creds.
-    real_sanitizer = str(module._SKILLS_ROOT / "heartbeat/scripts/sanitize-email-body.py")
-    monkeypatch.setattr(module, "SANITIZER_MOUNT", real_sanitizer)
+    # Point both loaders at the local fakes so main() reaches the
+    # credential pre-flight; then drop the creds. The fake composio-rest
+    # mirrors the heartbeat module's load surface (MissingCredentials,
+    # MISSING_CREDENTIALS_HINT, require_credentials, composio_execute).
+    monkeypatch.setattr(module, "SANITIZER_MOUNT", FAKE_SANITIZER)
+    monkeypatch.setattr(module, "COMPOSIO_REST_MOUNT", FAKE_COMPOSIO_REST)
     monkeypatch.delenv("COMPOSIO_API_KEY", raising=False)
     monkeypatch.delenv("COMPOSIO_USER_ID", raising=False)
     rc = module.main()
@@ -278,13 +269,11 @@ def test_main_fail_closed_when_credentials_missing(fetch_order_emails, monkeypat
     assert "COMPOSIO_API_KEY" in captured.err
 
 
-@pytest.mark.skip(reason=_HEARTBEAT_DEP)
 def test_main_fail_closed_when_rest_helper_missing(
     fetch_order_emails, tmp_path, monkeypatch, capsys
 ):
     module, _, _ = fetch_order_emails
-    real_sanitizer = str(module._SKILLS_ROOT / "heartbeat/scripts/sanitize-email-body.py")
-    monkeypatch.setattr(module, "SANITIZER_MOUNT", real_sanitizer)
+    monkeypatch.setattr(module, "SANITIZER_MOUNT", FAKE_SANITIZER)
     monkeypatch.setattr(module, "COMPOSIO_REST_MOUNT", str(tmp_path / "composio-rest.py"))
     monkeypatch.setattr(module, "COMPOSIO_REST_FALLBACK", tmp_path / "composio-rest.py")
     rc = module.main()

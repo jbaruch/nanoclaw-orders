@@ -2,6 +2,10 @@
 
 All notable changes to this tile are documented here.
 
+### Changed — freeze wall-clock tests and unskip fail-closed coverage (`jbaruch/nanoclaw-orders#20`, `jbaruch/nanoclaw-orders#21`)
+
+Two test-hygiene fixes. First (#21): `test_flag_anomalies.py` and `test_promote_stale_shipped.py` computed fixtures from `date.today()` / `datetime.now()`, so the boundaries under test moved every day; both now freeze `module.date` / `module.datetime` to fixed test doubles (the `test_within_days.py` pattern) with literal fixture dates. Second (#20): the `fetch-order-emails.py` fail-closed main-path tests were skipped as heartbeat-dependent; new local fakes under `tests/fakes/` mirror the heartbeat modules' load surface, unskipping the missing-credentials and missing-REST-helper paths, and the two sanitizer-behavior skips are replaced by a contract test proving the loaded sanitizer runs before projection. The suite now runs with zero skips.
+
 ## 0.1.13 — 2026-07-07
 
 ### Changed — move Step 6 exclusion matching into deterministic code (`jbaruch/nanoclaw-orders#18`)
