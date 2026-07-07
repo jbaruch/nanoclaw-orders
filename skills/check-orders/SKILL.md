@@ -108,7 +108,7 @@ echo '{"id": "...", "source": "...", "status": "...", "amount": 19.99, "currency
   | python3 scripts/apply-order.py
 ```
 
-Parameter-bound `INSERT ... ON CONFLICT(email_message_id) DO UPDATE SET status = excluded.status, last_updated = excluded.last_updated WHERE orders.status != excluded.status`. Stdout: `{"action": "inserted" | "status_updated" | "noop", "id": "..."}`. New rows: `flagged = 0`, `flag_reason = NULL`. Rows whose `to_address` yields no parseable recipient (NULL, empty, or free text) are matched by Step 6's description fallback only.
+Parameter-bound `INSERT ... ON CONFLICT(email_message_id) DO UPDATE SET status = excluded.status, last_updated = excluded.last_updated WHERE orders.status != excluded.status`. Stdout: `{"action": "inserted" | "status_updated" | "noop", "id": "..."}`. New rows: `flagged = 0`, `flag_reason = NULL`.
 
 ## Step 6 — Apply user-preference exclusions
 

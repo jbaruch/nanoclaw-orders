@@ -101,8 +101,10 @@ def _matches(rule: dict, source, description, to_address) -> bool:
         rule_addresses = {a.lower() for a in rule["addresses"]}
         return any(addr in rule_addresses for addr in recipients)
     if isinstance(description, str):
+        # Both sides normalized so a capitalized entry in EXCLUSIONS
+        # can't accidentally turn the fallback case-sensitive.
         lowered = description.lower()
-        return any(sub in lowered for sub in rule["description_substrings"])
+        return any(sub.lower() in lowered for sub in rule["description_substrings"])
     return False
 
 
