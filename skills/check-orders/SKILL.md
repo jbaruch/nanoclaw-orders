@@ -108,34 +108,19 @@ echo '{"id": "...", "source": "...", "status": "...", "amount": 19.99, "currency
   | python3 scripts/apply-order.py
 ```
 
-Parameter-bound `INSERT ... ON CONFLICT(email_message_id) DO UPDATE SET status = excluded.status, last_updated = excluded.last_updated WHERE orders.status != excluded.status`. Stdout: `{"action": "inserted" | "status_updated" | "noop", "id": "..."}`. New rows: `flagged = 0`, `flag_reason = NULL`. Historical rows with NULL `to_address` skip Step 6's exclusion check.
+Parameter-bound `INSERT ... ON CONFLICT(email_message_id) DO UPDATE SET status = excluded.status, last_updated = excluded.last_updated WHERE orders.status != excluded.status`. Stdout: `{"action": "inserted" | "status_updated" | "noop", "id": "..."}`. New rows: `flagged = 0`, `flag_reason = NULL`.
 
 ## Step 6 — Apply user-preference exclusions
 
-Unflag orders matching exclusions. Excluded orders are `flagged: 0`, `flag_reason: NULL`. Pass exclusions via `EXCLUDED_IDS` env var to Step 8.
-
-**Enforcement:** the table below is the runtime-authoritative rule set; Step 6 matches it directly, not `/workspace/trusted/user_preferences.md`. When `user_preferences.md` changes its "Do NOT flag these" list, update this table in the same change.
-
-**Matching rules on `to_address`:**
-- Parse out any `"Display Name" <email@domain>` wrapping; compare against the bare `email@domain` part
-- A `To:` with multiple comma-separated recipients matches if ANY recipient matches the rule
-- Email comparisons are case-insensitive on local-part and domain
-- `description` matching is substring, case-insensitive
-
-| Exclusion | Match rule |
-|-----------|------------|
-| Amazon noise via `amir@sadogursky.com` family address | `source == "amazon"` AND ( any extracted address in `to_address` equals `"amir@sadogursky.com"` case-insensitive, OR `description` contains `"Amir"` / `"(Amir)"` case-insensitive ) |
-
-Pipe matching ids (one per line) into the unflag script:
-
 ```bash
-printf '%s\n' "<id1>" "<id2>" ... \
-  | python3 scripts/unflag-orders.py
+python3 scripts/apply-exclusions.py
 ```
 
-Parameter-bound `UPDATE orders SET flagged = 0, flag_reason = NULL WHERE id = ?` per id in one transaction. Emits `{"unflagged_existing": <int>, "missing_ids": <int>}`.
+The exclusion rule table and all matching logic are owned by the script — see `scripts/apply-exclusions.py`, `EXCLUSIONS` constant and module docstring. Side effect: every matched row is reset to `flagged = 0`, `flag_reason = NULL` in one transaction, parameter-bound.
 
-Collect the same id list as a comma-separated string for Step 8's `EXCLUDED_IDS`.
+**Enforcement:** the script's `EXCLUSIONS` table is the runtime-authoritative mirror of the "Do NOT flag these" list in `/workspace/trusted/user_preferences.md`. When that list changes, update `EXCLUSIONS` in the same change.
+
+Stdout: `{"excluded_ids": [...], "excluded_ids_csv": "...", "matched": <int>, "unflagged": <int>}` (ids in ascending `id` order). Pass `excluded_ids_csv` verbatim as Step 8's `EXCLUDED_IDS` — do not recompute or edit the list. (`scripts/unflag-orders.py` remains available for ad-hoc unflagging outside this flow, e.g. user-acknowledged alerts.)
 
 ## Step 7 — Auto-promote stale shipped/ordered orders
 

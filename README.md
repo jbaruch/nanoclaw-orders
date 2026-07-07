@@ -72,9 +72,11 @@ Both resolve when admin co-loads with this overlay (the owner's main/trusted cha
 - `scripts/fetch-order-emails.py` — multi-query Composio Gmail fetch, cross-query dedup, in-container sanitization, compact-row projection
 - `scripts/compute-order-id.py` — deterministic SHA-1-prefix order id from `(source, order_date, description)`
 - `scripts/apply-order.py` — upserts an order row on `email_message_id`
+- `scripts/apply-exclusions.py` — owns the user-preference exclusion table and matching; unflags matches and emits the id list Step 8 consumes via `EXCLUDED_IDS`
 - `scripts/flag-anomalies.py` — applies the anomaly predicates (owns the statuses, dollar threshold, age cutoffs)
 - `scripts/get-flagged-orders.py` — returns currently-flagged orders for the alert channel
-- `scripts/unflag-orders.py` — clears flags the user has acknowledged
+- `scripts/render-order-alerts.py` — HTML-escapes flagged rows into the ready-to-send Telegram alert envelope
+- `scripts/unflag-orders.py` — clears flags the user has acknowledged (ad-hoc, outside the Step 6 flow)
 - `scripts/promote-stale-shipped.py` — ages shipped orders past the delivery window into the overdue state
 - `scripts/within-days.py` — date-window predicate helper
 - `scripts/write-orders-metadata.py` — write-ahead cursor + metadata writer
