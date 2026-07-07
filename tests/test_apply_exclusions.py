@@ -3,20 +3,37 @@
 Locks down the Step 6 contract:
 
   - EXCLUSIONS matching: source equality AND (any parsed recipient
-    equals a rule address case-insensitively OR description contains a
-    rule substring case-insensitively)
+    equals a rule address case-insensitively; a parseable to_address
+    with no matching recipient does NOT match — the description
+    fallback applies only when to_address is NULL/empty/unparseable)
   - to_address parsing handles display-name wrapping and
     comma-separated multi-recipient headers (email.utils.getaddresses)
-  - NULL/empty to_address falls through to the description check
   - matches are unflagged in one pass; already-unflagged matches still
     appear in excluded_ids but do not count as unflagged
   - stdout: {"excluded_ids": [...], "excluded_ids_csv": "...",
-             "matched": <int>, "unflagged": <int>}
+             "matched": <int>, "unflagged": <int>} — ids in ascending
+    id order (SQL ORDER BY)
   - exit codes: 0 success, 1 IO/schema error
 """
 
 import json
 import sqlite3
+
+_COLUMNS = (
+    "id",
+    "source",
+    "status",
+    "amount",
+    "currency",
+    "description",
+    "order_date",
+    "expected_delivery",
+    "email_message_id",
+    "to_address",
+    "flagged",
+    "flag_reason",
+    "last_updated",
+)
 
 
 def _insert(db_path, **fields):
@@ -39,10 +56,9 @@ def _insert(db_path, **fields):
     conn = sqlite3.connect(str(db_path))
     try:
         conn.execute(
-            "INSERT INTO orders (id, source, status, amount, currency, description, "
-            "order_date, expected_delivery, email_message_id, to_address, flagged, "
-            "flag_reason, last_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            tuple(defaults.values()),
+            f"INSERT INTO orders ({', '.join(_COLUMNS)}) "
+            f"VALUES ({', '.join('?' for _ in _COLUMNS)})",
+            tuple(defaults[c] for c in _COLUMNS),
         )
         conn.commit()
     finally:
@@ -182,15 +198,38 @@ def test_already_unflagged_match_counts_matched_not_unflagged(apply_exclusions, 
     assert payload["unflagged"] == 0
 
 
-def test_csv_joins_multiple_ids_in_row_order(apply_exclusions, capsys):
+def test_description_fallback_does_not_overrule_parseable_address(apply_exclusions, capsys):
+    """An Amazon order addressed to someone ELSE must stay flaggable even
+    when its description mentions the excluded person — a parseable
+    to_address is authoritative and the description fallback must not
+    suppress a legitimate anomaly flag."""
     module, db_path = apply_exclusions
-    _insert(db_path, id="c1", email_message_id="m-c1", to_address="amir@sadogursky.com")
+    _insert(
+        db_path,
+        id="n3",
+        email_message_id="m-n3",
+        to_address="baruch@sadogursky.com",
+        description="Gift for Amir",
+        flagged=1,
+        flag_reason="Order cancelled",
+    )
+    code, out, _err = _run(module, capsys)
+    assert code == 0
+    assert json.loads(out)["excluded_ids"] == []
+    assert _flag_state(db_path, "n3") == (1, "Order cancelled")
+
+
+def test_csv_joins_multiple_ids_in_id_order(apply_exclusions, capsys):
+    module, db_path = apply_exclusions
+    # Insert out of id order to prove the ORDER BY, not insertion order,
+    # drives the output.
     _insert(db_path, id="c2", email_message_id="m-c2", description="For Amir")
+    _insert(db_path, id="c1", email_message_id="m-c1", to_address="amir@sadogursky.com")
     code, out, _err = _run(module, capsys)
     assert code == 0
     payload = json.loads(out)
-    assert set(payload["excluded_ids"]) == {"c1", "c2"}
-    assert payload["excluded_ids_csv"] == ",".join(payload["excluded_ids"])
+    assert payload["excluded_ids"] == ["c1", "c2"]
+    assert payload["excluded_ids_csv"] == "c1,c2"
 
 
 def test_empty_table_emits_empty_result(apply_exclusions, capsys):

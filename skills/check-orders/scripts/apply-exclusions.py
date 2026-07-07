@@ -20,12 +20,17 @@ Matching rules (implemented in `_matches`):
     multi-recipient headers both resolve to bare addresses; a row
     matches when ANY recipient equals a rule address,
     case-insensitively on the full address
-  - rows with NULL/empty `to_address` (historical rows predating the
-    column) fall through to the description check
-  - description fallback: case-insensitive substring match against
-    the rule's `description_substrings`
+  - when `to_address` yields at least one recipient and none match,
+    the row does NOT match — a parseable address is authoritative,
+    and the description fallback must not overrule it (an Amazon
+    order addressed to someone else stays flaggable even if its
+    description mentions the excluded person)
+  - ONLY rows with NULL/empty/unparseable `to_address` (historical
+    rows predating the column) fall through to the description
+    fallback: case-insensitive substring match against the rule's
+    `description_substrings`
 
-Stdout on success:
+Stdout on success (ids in ascending `id` order via SQL `ORDER BY`):
     {"excluded_ids": [...], "excluded_ids_csv": "id1,id2",
      "matched": <int>, "unflagged": <int>}
 
@@ -75,8 +80,13 @@ def _recipients(to_address) -> list[str]:
 def _matches(rule: dict, source, description, to_address) -> bool:
     if source != rule["source"]:
         return False
-    if any(addr in rule["addresses"] for addr in _recipients(to_address)):
-        return True
+    recipients = _recipients(to_address)
+    if recipients:
+        # A parseable To: header is authoritative — match on it alone.
+        # Addresses are normalized on both sides so a mixed-case entry
+        # in EXCLUSIONS can't silently stop matching.
+        rule_addresses = {a.lower() for a in rule["addresses"]}
+        return any(addr in rule_addresses for addr in recipients)
     if isinstance(description, str):
         lowered = description.lower()
         return any(sub in lowered for sub in rule["description_substrings"])
@@ -91,7 +101,7 @@ def main() -> int:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT id, source, description, to_address, flagged FROM orders"
+            "SELECT id, source, description, to_address, flagged FROM orders ORDER BY id"
         ).fetchall()
         with conn:
             for row in rows:
