@@ -2,6 +2,8 @@
 
 All notable changes to this tile are documented here.
 
+## 0.1.11 — 2026-07-07
+
 ### Fixed — backfill missing release entries and guard the version/CHANGELOG sync (`jbaruch/nanoclaw-orders#17`)
 
 Versions 0.1.7–0.1.9 published without CHANGELOG entries: their PRs added no un-headed entry blocks, so the stamp step (wired in 0.1.7 itself) had nothing to stamp and `tile.json` advanced while the CHANGELOG stood still. Backfill the three sections from the merge commits that produced each release, and add `tests/test_changelog_sync.py` — a pytest guard asserting the first `## X.Y.Z` heading in `CHANGELOG.md` matches `tile.json`'s version, so the next entry-less release fails the very next PR's CI instead of drifting silently for three versions.
