@@ -2,11 +2,33 @@
 
 All notable changes to this tile are documented here.
 
+### Fixed — backfill missing release entries and guard the version/CHANGELOG sync (`jbaruch/nanoclaw-orders#17`)
+
+Versions 0.1.7–0.1.9 published without CHANGELOG entries: their PRs added no un-headed entry blocks, so the stamp step (wired in 0.1.7 itself) had nothing to stamp and `tile.json` advanced while the CHANGELOG stood still. Backfill the three sections from the merge commits that produced each release, and add `tests/test_changelog_sync.py` — a pytest guard asserting the first `## X.Y.Z` heading in `CHANGELOG.md` matches `tile.json`'s version, so the next entry-less release fails the very next PR's CI instead of drifting silently for three versions.
+
 ## 0.1.10 — 2026-07-07
 
 ### Changed — bump ruff to 0.15.20 and reformat (`jbaruch/nanoclaw-orders#16`)
 
 Land the ruff 0.7.4 → 0.15.20 toolchain bump together with the mechanical reformat it forces on three files (implicit string-concat collapse, assert-message wrapping). Under the previously pinned 0.7.4 the tree was format-clean — the drift issue #16 reported reproduces only under newer ruff, which is exactly what was blocking Dependabot's ruff bump PR #10 on the format gate. Bump and reformat land as one PR; either half alone leaves CI red. Supersedes PR #10.
+
+## 0.1.9 — 2026-07-07
+
+### Changed — ignore tessl-generated `.github/mcp.json` (`jbaruch/nanoclaw-orders#15`)
+
+Current tessl CLI init emits `.github/mcp.json` (GitHub Copilot CLI MCP config) alongside the scaffolding the existing ignore block already covers; the block predated it and let it leak through as untracked noise. Entry backfilled by #17 — the release shipped without one.
+
+## 0.1.8 — 2026-07-03
+
+### Changed — refresh coding-policy PR review workflows
+
+Upgrade the gh-aw `jbaruch/coding-policy` PR review workflow templates (OpenAI and Anthropic reviewers, sources and compiled `.lock.yml` forms) to the latest published version. Entry backfilled by #17 — the release shipped without one.
+
+## 0.1.7 — 2026-07-02
+
+### Changed — wire coding-policy stamp-changelog step before publish (`jbaruch/nanoclaw-orders#14`)
+
+Add the `jbaruch/coding-policy` stamp-changelog action immediately before `tesslio/patch-version-publish`, matching nanoclaw-travel: authors add un-headed `### ` CHANGELOG blocks and the step writes the `## <version> — <date>` heading at publish time. Entry backfilled by #17 — the release that wired the stamper shipped, fittingly, without one.
 
 ## 0.1.6 — 2026-07-02
 
