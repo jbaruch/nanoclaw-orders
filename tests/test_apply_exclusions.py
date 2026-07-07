@@ -198,6 +198,27 @@ def test_already_unflagged_match_counts_matched_not_unflagged(apply_exclusions, 
     assert payload["unflagged"] == 0
 
 
+def test_normalizes_stale_flag_reason_on_already_unflagged_match(apply_exclusions, capsys):
+    """A matched row that is already flagged=0 but carries a stale
+    flag_reason must be normalized too (idempotent side effect), while
+    the unflagged count only reflects rows that were flagged=1."""
+    module, db_path = apply_exclusions
+    _insert(
+        db_path,
+        id="a6",
+        email_message_id="m-a6",
+        to_address="amir@sadogursky.com",
+        flagged=0,
+        flag_reason="Order cancelled",
+    )
+    code, out, _err = _run(module, capsys)
+    assert code == 0
+    payload = json.loads(out)
+    assert payload["excluded_ids"] == ["a6"]
+    assert payload["unflagged"] == 0
+    assert _flag_state(db_path, "a6") == (0, None)
+
+
 def test_description_fallback_does_not_overrule_parseable_address(apply_exclusions, capsys):
     """An Amazon order addressed to someone ELSE must stay flaggable even
     when its description mentions the excluded person — a parseable

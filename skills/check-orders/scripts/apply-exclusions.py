@@ -34,9 +34,11 @@ Stdout on success (ids in ascending `id` order via SQL `ORDER BY`):
     {"excluded_ids": [...], "excluded_ids_csv": "id1,id2",
      "matched": <int>, "unflagged": <int>}
 
-`matched` counts rows matching an exclusion rule (all appear in
-`excluded_ids`); `unflagged` counts the subset that were flagged and
-got reset to `flagged = 0`, `flag_reason = NULL`.
+Side effect: EVERY matched row is reset to `flagged = 0`,
+`flag_reason = NULL` — including already-unflagged rows carrying a
+stale `flag_reason` (idempotent normalization). `matched` counts rows
+matching an exclusion rule (all appear in `excluded_ids`);
+`unflagged` counts the subset that had `flagged = 1` before the pass.
 
 Exit codes: 0 success, 1 IO/schema error.
 """
@@ -111,12 +113,13 @@ def main() -> int:
                 ):
                     continue
                 excluded_ids.append(row["id"])
-                cur = conn.execute(
-                    "UPDATE orders SET flagged = 0, flag_reason = NULL "
-                    "WHERE id = ? AND flagged = 1",
+                # Unconditional reset so an already-unflagged row with a
+                # stale flag_reason is normalized too (idempotent).
+                conn.execute(
+                    "UPDATE orders SET flagged = 0, flag_reason = NULL WHERE id = ?",
                     (row["id"],),
                 )
-                if cur.rowcount > 0:
+                if row["flagged"]:
                     unflagged += 1
         json.dump(
             {

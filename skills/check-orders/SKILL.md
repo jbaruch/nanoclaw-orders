@@ -108,7 +108,7 @@ echo '{"id": "...", "source": "...", "status": "...", "amount": 19.99, "currency
   | python3 scripts/apply-order.py
 ```
 
-Parameter-bound `INSERT ... ON CONFLICT(email_message_id) DO UPDATE SET status = excluded.status, last_updated = excluded.last_updated WHERE orders.status != excluded.status`. Stdout: `{"action": "inserted" | "status_updated" | "noop", "id": "..."}`. New rows: `flagged = 0`, `flag_reason = NULL`. Historical rows with NULL `to_address` are matched by Step 6's description fallback only.
+Parameter-bound `INSERT ... ON CONFLICT(email_message_id) DO UPDATE SET status = excluded.status, last_updated = excluded.last_updated WHERE orders.status != excluded.status`. Stdout: `{"action": "inserted" | "status_updated" | "noop", "id": "..."}`. New rows: `flagged = 0`, `flag_reason = NULL`. Rows whose `to_address` yields no parseable recipient (NULL, empty, or free text) are matched by Step 6's description fallback only.
 
 ## Step 6 — Apply user-preference exclusions
 
@@ -116,11 +116,11 @@ Parameter-bound `INSERT ... ON CONFLICT(email_message_id) DO UPDATE SET status =
 python3 scripts/apply-exclusions.py
 ```
 
-The script owns the exclusion rule table and all matching logic — recipient parsing via `email.utils.getaddresses` (display-name unwrapping, comma-separated multi-recipient headers), case-insensitive address comparison, and the case-insensitive description-substring fallback. See `scripts/apply-exclusions.py` — `EXCLUSIONS` constant and module docstring. It unflags every matching row (`flagged = 0`, `flag_reason = NULL`) in one transaction; parameter-bound throughout.
+The exclusion rule table and all matching logic are owned by the script — see `scripts/apply-exclusions.py`, `EXCLUSIONS` constant and module docstring. Side effect: every matched row is reset to `flagged = 0`, `flag_reason = NULL` in one transaction, parameter-bound.
 
 **Enforcement:** the script's `EXCLUSIONS` table is the runtime-authoritative mirror of the "Do NOT flag these" list in `/workspace/trusted/user_preferences.md`. When that list changes, update `EXCLUSIONS` in the same change.
 
-Stdout: `{"excluded_ids": [...], "excluded_ids_csv": "...", "matched": <int>, "unflagged": <int>}`. Pass `excluded_ids_csv` verbatim as Step 8's `EXCLUDED_IDS` — do not recompute or edit the list. (`scripts/unflag-orders.py` remains available for ad-hoc unflagging outside this flow, e.g. user-acknowledged alerts.)
+Stdout: `{"excluded_ids": [...], "excluded_ids_csv": "...", "matched": <int>, "unflagged": <int>}` (ids in ascending `id` order). Pass `excluded_ids_csv` verbatim as Step 8's `EXCLUDED_IDS` — do not recompute or edit the list. (`scripts/unflag-orders.py` remains available for ad-hoc unflagging outside this flow, e.g. user-acknowledged alerts.)
 
 ## Step 7 — Auto-promote stale shipped/ordered orders
 
