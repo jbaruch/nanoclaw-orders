@@ -112,9 +112,9 @@ def test_first_write_adds_schema_version_column_and_stamps_v1(
     every UPSERT with `SCHEMA_VERSION=1`. Asserting both the column
     appears AND the rows carry the expected version."""
     module, db_path = write_orders_metadata
-    assert "schema_version" not in _columns(
-        db_path
-    ), "fixture should mirror the pre-migration table shape — bare key/value"
+    assert "schema_version" not in _columns(db_path), (
+        "fixture should mirror the pre-migration table shape — bare key/value"
+    )
 
     code, _out, _err = _run(module, monkeypatch, capsys, "2026-04-30T12:00:00Z")
     assert code == 0
