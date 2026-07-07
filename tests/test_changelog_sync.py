@@ -20,7 +20,7 @@ import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-HEADING_RE = re.compile(r"^## (\d+\.\d+\.\d+)\b", re.MULTILINE)
+HEADING_RE = re.compile(r"^## (\d+\.\d+\.\d+)(?=\s|$)", re.MULTILINE)
 
 
 def test_first_changelog_heading_matches_tile_version():
