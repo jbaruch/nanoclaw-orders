@@ -106,6 +106,20 @@ def unflag_orders(tmp_path, monkeypatch):
 
 
 @pytest.fixture
+def apply_exclusions(tmp_path, monkeypatch):
+    """Load check-orders/scripts/apply-exclusions.py with DB_PATH pointing
+    at a tmp_path-rooted seeded SQLite file."""
+    db_path = tmp_path / "messages.db"
+    _seed_orders_db(str(db_path))
+    module = _load(
+        "apply_exclusions_under_test",
+        "skills/check-orders/scripts/apply-exclusions.py",
+    )
+    monkeypatch.setattr(module, "DB_PATH", str(db_path))
+    return module, db_path
+
+
+@pytest.fixture
 def get_flagged_orders(tmp_path, monkeypatch):
     """Load check-orders/scripts/get-flagged-orders.py with DB_PATH pointing
     at a tmp_path-rooted seeded SQLite file."""
