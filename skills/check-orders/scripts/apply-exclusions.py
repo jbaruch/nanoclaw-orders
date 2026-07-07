@@ -129,10 +129,13 @@ def main() -> int:
                 ):
                     continue
                 excluded_ids.append(row["id"])
-                # Unconditional reset so an already-unflagged row with a
-                # stale flag_reason is normalized too (idempotent).
+                # Reset covers already-unflagged rows with a stale
+                # flag_reason (idempotent normalization); the predicate
+                # skips rows already normalized so no-op writes don't
+                # amplify SQLite locking on large tables.
                 conn.execute(
-                    "UPDATE orders SET flagged = 0, flag_reason = NULL WHERE id = ?",
+                    "UPDATE orders SET flagged = 0, flag_reason = NULL "
+                    "WHERE id = ? AND (flagged != 0 OR flag_reason IS NOT NULL)",
                     (row["id"],),
                 )
                 if row["flagged"]:
