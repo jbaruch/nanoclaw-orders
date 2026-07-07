@@ -2,6 +2,8 @@
 
 All notable changes to this tile are documented here.
 
+## 0.1.13 — 2026-07-07
+
 ### Changed — move Step 6 exclusion matching into deterministic code (`jbaruch/nanoclaw-orders#18`)
 
 Step 6 specified address parsing, multi-recipient handling, case-insensitive comparison, and the description fallback as prose for the agent to re-implement on every run — a mismatch could re-flag orders the user explicitly excluded. New `apply-exclusions.py` owns the `EXCLUSIONS` table and all matching (recipient parsing via `email.utils.getaddresses`), unflags matches in one transaction, and emits the id list Step 8 passes as `EXCLUDED_IDS`. Tests cover display-name wrapping, comma-separated recipients, case-insensitivity, the NULL `to_address` description fallback, and same-domain non-matches. `unflag-orders.py` stays as the ad-hoc unflagging utility.
