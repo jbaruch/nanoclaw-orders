@@ -132,6 +132,26 @@ def test_multi_recipient_header_matches_any(apply_exclusions, capsys):
     assert json.loads(out)["excluded_ids"] == ["a3"]
 
 
+def test_free_text_to_address_falls_through_to_description(apply_exclusions, capsys):
+    """A free-text to_address ('Amir') yields a non-empty token from
+    getaddresses but no @-shaped mailbox — it must count as unparseable
+    and fall through to the description fallback, not suppress it."""
+    module, db_path = apply_exclusions
+    _insert(
+        db_path,
+        id="a7",
+        email_message_id="m-a7",
+        to_address="Amir",
+        description="Echo Dot (Amir)",
+        flagged=1,
+        flag_reason="Order cancelled",
+    )
+    code, out, _err = _run(module, capsys)
+    assert code == 0
+    assert json.loads(out)["excluded_ids"] == ["a7"]
+    assert _flag_state(db_path, "a7") == (0, None)
+
+
 def test_null_to_address_uses_description_fallback(apply_exclusions, capsys):
     module, db_path = apply_exclusions
     _insert(

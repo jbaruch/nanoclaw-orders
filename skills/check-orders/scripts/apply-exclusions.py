@@ -67,16 +67,27 @@ EXCLUSIONS = (
 )
 
 
+def _is_mailbox(addr: str) -> bool:
+    """True when the token has an @-separated non-empty local and domain
+    part. `getaddresses` returns free-text tokens (e.g. "Amir") as
+    non-empty "addresses"; without this filter such rows would count as
+    parseable and skip the description fallback."""
+    local, sep, domain = addr.partition("@")
+    return bool(sep and local and domain)
+
+
 def _recipients(to_address) -> list[str]:
-    """Parse a raw To: header into lowercased bare addresses.
+    """Parse a raw To: header into lowercased bare mailbox addresses.
 
     `getaddresses` handles display-name wrapping and comma-separated
-    multi-recipient headers. Non-string / empty values (historical
-    rows with NULL to_address) return an empty list.
+    multi-recipient headers; tokens that are not @-shaped mailboxes
+    (free-text historical values) are discarded so those rows fall
+    through to the description fallback. Non-string / empty values
+    (historical rows with NULL to_address) return an empty list.
     """
     if not isinstance(to_address, str) or not to_address.strip():
         return []
-    return [addr.lower() for _name, addr in getaddresses([to_address]) if addr]
+    return [addr.lower() for _name, addr in getaddresses([to_address]) if _is_mailbox(addr)]
 
 
 def _matches(rule: dict, source, description, to_address) -> bool:
