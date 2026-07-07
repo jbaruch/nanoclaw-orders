@@ -181,7 +181,7 @@ Same script as Step 3, re-run on the happy path. Idempotent. Stdout: `{"last_che
 python3 scripts/get-flagged-orders.py | python3 scripts/render-order-alerts.py
 ```
 
-`get-flagged-orders.py` emits the flagged rows as a JSON array ordered by `order_date` descending; `render-order-alerts.py` HTML-escapes every field (`description` derives from sender-controlled email text) and prints the complete Telegram HTML message — one bullet per order, shaped:
+`get-flagged-orders.py` emits the flagged rows as a JSON array ordered by `order_date` descending; `render-order-alerts.py` HTML-escapes every field (`description` derives from sender-controlled email text) and emits `{"message": <str|null>, "count": <int>}`. `message` is the complete Telegram HTML text — one bullet per order, shaped:
 
 ```
 <b>📦 Order alerts:</b>
@@ -189,4 +189,4 @@ python3 scripts/get-flagged-orders.py | python3 scripts/render-order-alerts.py
 • <b>[description]</b> — [flag_reason] (<i>[source], [order_date]</i>)
 ```
 
-Empty stdout → no flagged orders → stay silent. Otherwise send the script's stdout verbatim via `mcp__nanoclaw__send_message` — never rebuild or reformat the message by hand; the escaping is what keeps a hostile subject line from breaking the Telegram HTML parse or injecting tags. Finish here.
+`message: null` → no flagged orders → stay silent. Otherwise send the `message` value verbatim via `mcp__nanoclaw__send_message` — never rebuild or reformat it by hand; the escaping is what keeps a hostile subject line from breaking the Telegram HTML parse or injecting tags. Finish here.

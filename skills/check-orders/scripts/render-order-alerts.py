@@ -14,20 +14,25 @@ hand (per `coding-policy: script-delegation`).
 Input (stdin): the JSON array `get-flagged-orders.py` prints —
 `[{"description", "flag_reason", "source", "order_date"}, ...]`.
 
-Output (stdout): the complete Telegram HTML message, one bullet per
+Output (stdout): a single JSON object (structured data per
+`coding-policy: script-delegation`):
+
+    {"message": "<full Telegram HTML text>" | null, "count": <int>}
+
+`message` is the complete ready-to-send Telegram HTML, one bullet per
 order in input order:
 
     <b>📦 Order alerts:</b>
 
     • <b>{description}</b> — {flag_reason} (<i>{source}, {order_date}</i>)
 
-An empty input array prints NOTHING (the SKILL's stay-silent
-contract). Fields are coerced to str and HTML-escaped; null fields
-render as empty strings.
+An empty input array yields `{"message": null, "count": 0}` (the
+SKILL's stay-silent signal). Fields are coerced to str and
+HTML-escaped; null fields render as empty strings.
 
 Exit codes: 0 success (including empty input), 1 malformed input
-(non-JSON stdin or a non-array payload) with a stderr diagnostic and
-no stdout.
+(non-JSON stdin, a non-array payload, or a non-object array element)
+with a stderr diagnostic and no stdout.
 """
 
 from __future__ import annotations
@@ -89,8 +94,8 @@ def main() -> int:
         )
         return 1
     message = render(orders)
-    if message:
-        sys.stdout.write(message + "\n")
+    json.dump({"message": message or None, "count": len(orders)}, sys.stdout)
+    sys.stdout.write("\n")
     return 0
 
 
