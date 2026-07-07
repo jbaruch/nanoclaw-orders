@@ -87,7 +87,10 @@ def _recipients(to_address) -> list[str]:
     """
     if not isinstance(to_address, str) or not to_address.strip():
         return []
-    return [addr.lower() for _name, addr in getaddresses([to_address]) if _is_mailbox(addr)]
+    # Strip each token before validating — a folded To: header can leave
+    # leading/trailing whitespace or newlines around a valid address.
+    parsed = (addr.strip().lower() for _name, addr in getaddresses([to_address]))
+    return [addr for addr in parsed if _is_mailbox(addr)]
 
 
 def _matches(rule: dict, source, description, to_address) -> bool:
