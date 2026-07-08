@@ -2,6 +2,10 @@
 
 All notable changes to this tile are documented here.
 
+### Changed — bump pyright to 1.1.411
+
+Dev-toolchain pin refresh (Dependabot #12, landed with a CHANGELOG block so the stamp step has something to stamp). Zero findings at the new version — no code change.
+
 ## 0.1.14 — 2026-07-07
 
 ### Changed — freeze wall-clock tests and unskip fail-closed coverage (`jbaruch/nanoclaw-orders#20`, `jbaruch/nanoclaw-orders#21`)
