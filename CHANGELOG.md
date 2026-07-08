@@ -2,6 +2,10 @@
 
 All notable changes to this tile are documented here.
 
+### Changed — bump pytest to 9.1.1 (`jbaruch/nanoclaw-orders#28`)
+
+Dev-toolchain pin refresh across a pytest major version. The suite runs clean at 9.1.1 — 130 passed, zero skips, no deprecation warnings — no code change. Supersedes Dependabot's `jbaruch/nanoclaw-orders#11`, which lacked the CHANGELOG block the stamp step needs.
+
 ## 0.1.15 — 2026-07-08
 
 ### Changed — bump pyright to 1.1.411 (`jbaruch/nanoclaw-orders#27`)
