@@ -1,6 +1,6 @@
 {
   "name": "jbaruch/nanoclaw-orders",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "summary": "Order-email triage for NanoClaw: fetches order-related Gmail, maintains the orders SQLite table, and flags recent anomalies (cancellations/refunds, large purchases until delivered, overdue deliveries), with a cadence companion that runs it on a schedule. NanoClaw per-chat overlay tile.",
   "entrypoint": "README.md",
   "private": false,
