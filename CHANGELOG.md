@@ -2,6 +2,8 @@
 
 All notable changes to this tile are documented here.
 
+## 0.1.17 — 2026-07-08
+
 ### Changed — refresh pinned GitHub Actions (`jbaruch/nanoclaw-orders#29`)
 
 Adopt the four open Dependabot GitHub Actions bumps as one CI-scoped change, with each bump kept as its own Dependabot-authored commit: `actions/checkout` v4 → v7 (`test.yml`, `publish-tile.yml` — also silences the runners' Node 20 deprecation warning), `actions/setup-python` v5 → v6 (`test.yml`), plus `actions/cache/restore` v5.0.5 → v6.1.0 and `github/gh-aw-actions/setup` v0.81.6 → v0.82.2 in the compiled gh-aw review locks (Dependabot maintains those pins between `gh aw compile` runs). Review follow-ups: `actions/cache/save` is bumped to the same v6.1.0 Dependabot left it trailing at v5.0.5, and the locks' embedded `gh-aw-manifest` entries are updated to match the visible pins. Supersedes `jbaruch/nanoclaw-orders#6`–`#9`, which lacked the CHANGELOG blocks the stamp step needs. No workflow logic change.
