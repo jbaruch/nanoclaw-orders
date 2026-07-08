@@ -2,6 +2,8 @@
 
 All notable changes to this tile are documented here.
 
+## 0.1.18 — 2026-07-08
+
 ### Changed — bump github/gh-aw-actions/setup to v0.82.5 (`jbaruch/nanoclaw-orders#30`)
 
 Dependabot retargeted its `jbaruch/nanoclaw-orders#9` from 0.82.2 to 0.82.5 minutes after `jbaruch/nanoclaw-orders#29` landed 0.82.2 — the registry moved mid-campaign. Bump the pin in both compiled gh-aw review locks (uses lines, comment inventory, and embedded `gh-aw-manifest` entries) to v0.82.5. No workflow logic change.
