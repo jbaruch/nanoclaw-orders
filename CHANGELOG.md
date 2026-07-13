@@ -4,7 +4,7 @@ All notable changes to this tile are documented here.
 
 ### Changed — align `nightly-order-sync` wording with the sqlite order store (`jbaruch/nanoclaw-orders#32`)
 
-The `nightly-order-sync` skill still called the order store `orders-db` in its frontmatter `description` and Step 1. That literal `orders-db.json` file was migrated into the sqlite `orders` table in `#294` (2026-04-30); the canonical name is now the `orders` table in `messages.db`, per `check-orders/SKILL.md`. Replace the stale shorthand in both spots. Documentation wording only — no behavior change.
+The `nightly-order-sync` skill still called the order store `orders-db` in its frontmatter `description` and Step 1. That literal `orders-db.json` file was migrated into the sqlite `orders` table in `#294` (2026-04-30); the canonical name is now the `orders` table in `/workspace/store/messages.db`, per `check-orders/SKILL.md`. Replace the stale shorthand in both spots. Documentation wording only — no behavior change.
 
 ## 0.1.18 — 2026-07-08
 
