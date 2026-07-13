@@ -1,6 +1,6 @@
 ---
 name: nightly-order-sync
-description: "Cadence wrapper that runs check-orders on its own schedule: fetch order emails, update orders-db, flag anomalies, emit an observable-silence cursor marker. Peeled off the nightly-external-sync bundle (jbaruch/nanoclaw#581) so orders run in a bounded container. Triggers: 'order sync', 'sync orders', 'nightly order sync', 'check my orders nightly'."
+description: "Cadence wrapper that runs check-orders on its own schedule: fetch order emails, update the orders table in /workspace/store/messages.db, flag anomalies, emit an observable-silence cursor marker. Peeled off the nightly-external-sync bundle (jbaruch/nanoclaw#581) so orders run in a bounded container. Triggers: 'order sync', 'sync orders', 'nightly order sync', 'check my orders nightly'."
 cadence: "15 6 * * * (TZ=local)"
 agentModel: "claude-haiku-4-5-20251001"
 script: "scripts/precheck-nightly-order-sync.py"
@@ -16,7 +16,7 @@ The fire-time precheck (`scripts/precheck-nightly-order-sync.py`) gates wake-ups
 
 ## Step 1 — Check orders
 
-`Skill(skill: "tessl__check-orders")` — fetch order emails, update `orders-db`, flag anomalies. The inner skill reports flagged items via `mcp__nanoclaw__send_message` and is otherwise silent.
+`Skill(skill: "tessl__check-orders")` — fetch order emails, update the `orders` table in `/workspace/store/messages.db`, flag anomalies. The inner skill reports flagged items via `mcp__nanoclaw__send_message` and is otherwise silent.
 
 Track whether the inner skill surfaced anything to chat — that drives the `clean` vs `surfaced` word in Step 3.
 
