@@ -8,7 +8,7 @@ Per-chat overlay tile. Install via NanoClaw's `containerConfig.additionalTiles` 
 
 ## Capabilities
 
-1. **Order-email fetch** — Composio Gmail multi-query fetch over the v3 REST endpoint, cursor-bounded by `last_checked`, sanitized inside the container before any body reaches the session
+1. **Order-email fetch** — native Gmail multi-query fetch over the Gmail REST API, brokered by the OneCLI gateway, cursor-bounded by `last_checked`, sanitized inside the container before any body reaches the session
 2. **Order table maintenance** — upserts each order on `email_message_id` into the `orders` table; idempotent across overlapping fetch windows
 3. **Anomaly flagging** — flags cancellations/refunds, large purchases until delivered, and overdue deliveries (statuses, dollar threshold, and age cutoffs owned by `flag-anomalies.py`)
 4. **Signal-only alerts** — silent on normal order flow; older flagged events age out automatically
@@ -26,16 +26,13 @@ Add to a chat's overlay tile list via `update_group_config`:
 additionalTiles: ["nanoclaw-orders"]
 ```
 
-Load the overlay at the **main or trusted** tier. Two reasons: the Gmail fetch needs the Composio credentials NanoClaw forwards only to main/trusted containers, and the `orders` table lives in `messages.db`, which is mounted read-write only on main/trusted (read-only filtered copy on untrusted).
+Load the overlay at the **main or trusted** tier. Two reasons: the Gmail fetch reaches Google through the OneCLI gateway, which injects credentials only for main/trusted agents (the untrusted tier runs `secretMode: selective` and is gated from Google by design), and the `orders` table lives in `messages.db`, which is mounted read-write only on main/trusted (read-only filtered copy on untrusted).
 
 ## Required environment
 
-| Variable | Purpose |
-|----------|---------|
-| `COMPOSIO_API_KEY` | Composio v3 REST auth for the Gmail fetch |
-| `COMPOSIO_USER_ID` | Composio connected-account id for the owner's Gmail |
+None. This container holds no Google credential (`jbaruch/nanoclaw#638`): the OneCLI TLS-MITM gateway owns the OAuth connection and injects `Authorization: Bearer` on the wire to the Google API hosts, refreshing the token itself. The fetch sends no auth header and reads no key from the environment — `COMPOSIO_API_KEY` / `COMPOSIO_USER_ID` are gone.
 
-NanoClaw forwards both into main/trusted containers; the tile reads them at fetch time and fails closed (no fetch) when either is unset.
+The gateway reaches the fetch via `HTTPS_PROXY` + the mounted CA bundle, both set on the spawn by the orchestrator. When it isn't on the request path, Google answers 401 and the fetch fails closed with an operator-actionable diagnostic rather than retrying.
 
 ## Runtime data
 
@@ -50,12 +47,14 @@ The skill reads and writes the orchestrator's `messages.db` under the `/workspac
 
 ## Cross-tile dependency
 
-`scripts/fetch-order-emails.py` loads two shared helpers owned by `nanoclaw-admin`'s `heartbeat` skill at runtime via the co-loaded `tessl__heartbeat` tile mount:
+`scripts/fetch-order-emails.py` loads four shared helpers owned by `nanoclaw-admin`'s `heartbeat` skill at runtime via the co-loaded `tessl__heartbeat` tile mount:
 
-- `sanitize-email-body.py` — sanitizes message bodies inside the container before they reach the session
-- `composio-rest.py` — the Composio v3 REST execute helper + credential preflight
+- `sanitize-email-body.py` — `sanitize()`, applied to every text field inside the container before it reaches the session
+- `google-rest.py` — the native Google REST transport over the OneCLI gateway (`google_request`, `surface_url`, and the `GatewayNotInjecting` / `TierAccessRestricted` faults)
+- `gmail-ops.py` — `list_messages` / `get_message` against the Gmail REST API
+- `gmail-message.py` — flattens a raw `users.messages.get` resource (nested MIME tree, base64url bodies, raw header list) into sanitized fields
 
-Both resolve when admin co-loads with this overlay (the owner's main/trusted chat). The fetch fails closed if either is unavailable.
+All four resolve when admin co-loads with this overlay (the owner's main/trusted chat). The fetch fails closed if any is unavailable.
 
 ## Skills
 
@@ -69,7 +68,7 @@ Both resolve when admin co-loads with this overlay (the owner's main/trusted cha
 `check-orders` invokes these deterministic scripts from its SKILL.md steps:
 
 - `scripts/read-last-checked.py` — reads the `last_checked` cursor from `orders_metadata`
-- `scripts/fetch-order-emails.py` — multi-query Composio Gmail fetch, cross-query dedup, in-container sanitization, compact-row projection
+- `scripts/fetch-order-emails.py` — multi-query native Gmail fetch, cross-query dedup, in-container sanitization, compact-row projection
 - `scripts/compute-order-id.py` — deterministic SHA-1-prefix order id from `(source, order_date, description)`
 - `scripts/apply-order.py` — upserts an order row on `email_message_id`
 - `scripts/apply-exclusions.py` — owns the user-preference exclusion table and matching; unflags matches and emits the id list Step 8 consumes via `EXCLUDED_IDS`

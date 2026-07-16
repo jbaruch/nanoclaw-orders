@@ -11,7 +11,7 @@ You are AyeAye, Baruch's assistant. Check for order updates from Gmail and updat
 
 ## Core Rule — Never read raw Gmail into the session
 
-Raw bodies can carry invisible-Unicode padding that blows up the context window. Step 2's fetch script fetches over Composio REST and sanitizes inside the container; only its sanitized stdout reaches you. Never call `GMAIL_FETCH_EMAILS` (MCP or REST) yourself from the session. Background: `/workspace/group/nanoclaw-poison-defense.md`.
+Raw bodies can carry invisible-Unicode padding that blows up the context window. Step 2's fetch script fetches over native Gmail REST and sanitizes inside the container; only its sanitized stdout reaches you. Never fetch Gmail yourself from the session. Background: `/workspace/group/nanoclaw-poison-defense.md`.
 
 ## Step 1 — Read last_checked
 
@@ -23,29 +23,31 @@ python3 scripts/read-last-checked.py
 
 Stdout: `{"last_checked": "<iso>" | null}` (`null` on fresh DB). This read is informational; `fetch-order-emails.py` re-reads the cursor for the `after:` filter and Step 3 stamps write-ahead.
 
-## Step 2 — Fetch order-related emails (sanitized, over REST)
+## Step 2 — Fetch order-related emails (sanitized, over native Gmail REST)
 
-Query strings, cross-query dedup, in-container sanitization, compact-row projection, and the cursor-based `after:` filter live in the fetch script. It fetches via Composio's v3 REST endpoint and sanitizes before printing — raw bodies never enter the session (Core Rule).
+Query strings, cross-query dedup, in-container sanitization, compact-row projection, and the cursor-based `after:` filter live in the fetch script. It fetches via the native Gmail REST API — brokered by the OneCLI gateway, per `Google Tool Access` rule — and sanitizes before printing, so raw bodies never enter the session (Core Rule). No credential lives in this container: the gateway injects the Bearer on the wire.
 
 ```bash
 python3 scripts/fetch-order-emails.py
 ```
 
-Reads `orders_metadata.last_checked` and appends ` after:YYYY/MM/DD` to each query when set (unbounded otherwise). Loads the shared sanitizer from `tessl__heartbeat/scripts/sanitize-email-body.py`. Stdout:
+Reads `orders_metadata.last_checked` and appends ` after:YYYY/MM/DD` to each query when set (unbounded otherwise). Loads its shared helpers from `tessl__heartbeat/scripts/` (`sanitize-email-body.py`, `google-rest.py`, `gmail-ops.py`, `gmail-message.py`). Stdout:
 
 ```json
-{"messages": [{"messageId": "...", "from": "...", "to": "...", "subject": "...", "snippet": "...", "body": "...", "date": "...", "labelIds": [...]}], "errors": [{"query": "...", "error": "..."}]}
+{"messages": [{"messageId": "...", "threadId": "...", "from": "...", "to": "...", "subject": "...", "snippet": "...", "body": "...", "date": "...", "labelIds": [...]}], "errors": [{"query": "...", "error": "..."}]}
 ```
 
-`messages` is the sanitized, deduped input for Step 4. Exits non-zero with no stdout (fail-closed) if the shared sanitizer or Composio REST helper can't be loaded, or if `COMPOSIO_API_KEY` / `COMPOSIO_USER_ID` are unset — the stderr names the remediation.
+`messages` is the sanitized, deduped input for Step 4. `snippet` is Gmail's short preview; `body` is the full extracted text — read both (Step 4 matches status keywords against subject+snippet and finds the dollar amount in `body`). `date` is ISO 8601 UTC.
+
+Exits non-zero with no stdout (fail-closed) if a shared helper can't be loaded, if the gateway isn't injecting, or if this tier is restricted from Google — the stderr names the remediation.
 
 ### Error Handling
 
 | Failure | Action |
 |---|---|
-| `fetch-order-emails.py` exits non-zero (sanitizer/REST-helper unavailable, or `COMPOSIO_API_KEY` / `COMPOSIO_USER_ID` unset) | Hard fail. Do NOT fall back to direct `GMAIL_FETCH_EMAILS`. Report the skip (with the script's stderr remediation) via `mcp__nanoclaw__send_message`. Skip Step 3. |
-| All 5 queries error out (`len(errors) == 5`) | Skip run. Skip Step 3. Return nothing. |
-| Some queries errored, others returned (data or empty) | Proceed. Log errored queries. Run Step 3. |
+| `fetch-order-emails.py` exits non-zero (a `tessl__heartbeat` helper unavailable, gateway not injecting, or tier restricted) | Hard fail. Do NOT fall back to fetching Gmail yourself. Report the skip (with the script's stderr remediation) via `mcp__nanoclaw__send_message`. Skip Step 3. |
+| All 5 queries appear in `errors` **and** `messages` is empty (nothing was fetched at all) | Skip run. Skip Step 3. Return nothing. |
+| Some queries errored, others returned (data or empty) | Proceed. Log the errored queries. Run Step 3. An `errors` entry naming a single message id is one unreadable email, not a failed query — log it and carry on. |
 | All 5 queries succeeded with zero messages | Proceed. Run Step 3 (cursor must advance). |
 | All 5 queries succeeded with messages | Proceed. Run Step 3. |
 | Script prints non-parseable JSON | Skip Step 3, no metadata update. Next invocation retries. |
