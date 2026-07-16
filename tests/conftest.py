@@ -161,27 +161,32 @@ def compute_order_id():
 
 @pytest.fixture
 def fetch_order_emails(tmp_path, monkeypatch):
-    """Load check-orders/scripts/fetch-order-emails.py with the sanitizer
-    mount + fallback redirected at a tmp_path file (NOT created, so the
-    fail-closed `main()` path is exercisable) and DB_PATH redirected at a
-    tmp_path-rooted SQLite file seeded with the orders fixture.
-    Returned tuple is (module, sanitizer_path, db_path).
+    """Load check-orders/scripts/fetch-order-emails.py (#638: native Gmail
+    REST via the OneCLI gateway, no Composio credentials) with DB_PATH
+    redirected at a tmp_path-rooted SQLite file seeded with the orders
+    fixture. Returned tuple is (module, missing_scripts_dir, db_path).
 
-    The pure `fetch_order_emails(execute, sanitize_message, queries)` core
-    is tested directly with an injected fake `execute` + the
-    `sanitize_email_body` stub, so it needs no network and no real
-    heartbeat sibling."""
-    sanitizer_path = tmp_path / "sanitize-email-body.py"
+    Both heartbeat resolution paths are pointed at absent tmp dirs — this
+    tile does not ship the heartbeat scripts, and the in-repo fallback
+    would not exist on a runner either — so the default state is the
+    fail-closed `main()` path (helper unavailable → exit 2). Tests that
+    need the helpers repoint `_HEARTBEAT_MOUNT` at `tests/fakes/`, which
+    carries a double for each of the four shared modules.
+
+    The pure `fetch_order_emails(gmail, sanitize, gmail_message, queries)`
+    core takes an injected `gmail` collaborator, so it needs no network
+    and no real heartbeat sibling."""
+    missing_scripts = tmp_path / "no-heartbeat-scripts"
     db_path = tmp_path / "messages.db"
     _seed_orders_db(str(db_path))
     module = _load(
         "fetch_order_emails_under_test",
         "skills/check-orders/scripts/fetch-order-emails.py",
     )
-    monkeypatch.setattr(module, "SANITIZER_MOUNT", str(sanitizer_path))
-    monkeypatch.setattr(module, "SANITIZER_FALLBACK", sanitizer_path)
+    monkeypatch.setattr(module, "_HEARTBEAT_MOUNT", str(tmp_path / "absent-mount"))
+    monkeypatch.setattr(module, "_HEARTBEAT_FALLBACK", missing_scripts)
     monkeypatch.setattr(module, "DB_PATH", str(db_path))
-    return module, sanitizer_path, db_path
+    return module, missing_scripts, db_path
 
 
 @pytest.fixture
@@ -239,27 +244,25 @@ def within_days():
     )
 
 
-class _SanitizerStub:
-    """Identity test double for the heartbeat skill's sanitize-email-body.py.
-
-    fetch-order-emails.py loads the real sanitizer at runtime from the
-    co-loaded `tessl__heartbeat` tile mount; this tile does not ship it.
-    The orders-owned projection/dedup/fallback logic only requires a
-    callable `sanitize_message`, so an identity double exercises it
-    without coupling the suite to heartbeat's internals. The sanitizer's
-    own behavior (body cap, invisible-unicode collapse) is tested in
-    jbaruch/nanoclaw-admin's heartbeat suite. Revisit when the Gmail
-    fetch path is rewritten under jbaruch/nanoclaw#639."""
-
-    @staticmethod
-    def sanitize_message(msg):
-        return msg
-
-    @staticmethod
-    def sanitize(text, max_len=2000):
-        return text
-
-
 @pytest.fixture
-def sanitize_email_body():
-    return _SanitizerStub()
+def heartbeat_fakes():
+    """Load the `tests/fakes/` doubles for the four heartbeat modules
+    fetch-order-emails.py resolves over the co-loaded `tessl__heartbeat`
+    tile mount (this tile ships none of them).
+
+    Loaded through the same file-path import the script itself uses, so
+    the doubles are exercised as modules rather than as ad-hoc stubs.
+    Each fake's own docstring states which parts of its real counterpart's
+    behavior it mirrors and which belong to jbaruch/nanoclaw-admin's
+    heartbeat suite."""
+    fakes_dir = Path(__file__).resolve().parent / "fakes"
+    names = {
+        "sanitize_email_body": "sanitize-email-body.py",
+        "google_rest": "google-rest.py",
+        "gmail_ops": "gmail-ops.py",
+        "gmail_message": "gmail-message.py",
+    }
+    return {
+        name: _load(f"fake_{name}", str((fakes_dir / filename).relative_to(REPO_ROOT)))
+        for name, filename in names.items()
+    }

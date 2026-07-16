@@ -2,6 +2,18 @@
 
 All notable changes to this tile are documented here.
 
+### Changed — migrate the order-email fetch from Composio to native Gmail REST (`jbaruch/nanoclaw#638`)
+
+`fetch-order-emails.py` loaded `composio-rest.py` from `nanoclaw-admin`'s heartbeat skill over the co-loaded `tessl__heartbeat` mount. `#638` deletes that file: Google access now goes to the native Gmail REST API through the OneCLI TLS-MITM gateway, which owns the OAuth connection and injects `Authorization: Bearer` on the wire. Separate registries mean admin's publish breaks this tile's 06:15 nightly fetch until this one ships, so this lands immediately after admin.
+
+The fetch is rewritten onto heartbeat's new foundation — `google-rest.py` (transport), `gmail-ops.py` (list/get), `gmail-message.py` (native message parsing) — and `sanitize-email-body.py` now exports only `sanitize()`, its Composio-shaped `sanitize_message()` / `DEFAULT_FIELDS` having died with the invented field names they mapped. The stdout contract is unchanged, so SKILL.md Steps 3-10 are untouched.
+
+Two shape facts drove the rewrite. Native `users.messages.list` answers a query with `{id, threadId}` stubs only, where Composio's `GMAIL_FETCH_EMAILS` returned full messages — so every message costs a second `get`, and dedup now runs against the stubs before any body is paid for (an id surfaced by three of the five queries costs one `get`, not three). And native `snippet` is a real ~200-char preview rather than Composio's `{body, subject}` object, so `snippet` and `body` map to genuinely distinct fields instead of needing the `_as_text()` coercion — that helper, the envelope-shape sniffing, the `successful: false` branch, and the `messageId or id` / `from or sender` dual reads were all Composio artifacts and are deleted rather than ported. `internalDate` (epoch milliseconds) replaces Composio's date field.
+
+Credential handling is gone, not relocated: no `COMPOSIO_API_KEY` / `COMPOSIO_USER_ID`, no preflight, nothing in the container's environment to miss. The two failure modes it hid are actionable instead — a 401 (`GatewayNotInjecting`: the gateway is off the request path or the app is disconnected) and a 403 `access_restricted` (`TierAccessRestricted`: the untrusted tier is gated from Google by design) both exit 2 with a remediation rather than being retried as if transient. Per-query error isolation is preserved and extended: an unreadable individual message is an order alert that will not fire, so it becomes an `errors[]` entry against the query that surfaced it rather than being dropped silently. Step 2's error table reads on "all 5 queries errored **and** nothing was fetched", so a partially-failing run still advances the cursor — the forward-progress property `references/write-ahead-rationale.md` exists to protect.
+
+**Surface sync:** `skills/check-orders/scripts/fetch-order-emails.py`, `skills/check-orders/SKILL.md` (Core Rule, Step 2, error table), `skills/check-orders/references/write-ahead-rationale.md`, `README.md` (capabilities, tier rationale, required environment, cross-tile dependency, script list), `tests/test_fetch_order_emails.py`, `tests/conftest.py`, and `tests/fakes/` — `composio-rest.py` deleted, `sanitize-email-body.py` trimmed to `sanitize()`, plus new native-shaped doubles for `google-rest.py`, `gmail-ops.py`, and `gmail-message.py`.
+
 ## 0.1.19 — 2026-07-13
 
 ### Changed — align `nightly-order-sync` wording with the sqlite order store (`jbaruch/nanoclaw-orders#32`)
