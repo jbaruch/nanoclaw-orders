@@ -12,8 +12,8 @@ preflight are gone):
   - a query whose list call fails, and a message whose `get` fails, each
     become one `{"query", "error"}` entry — the run still proceeds
   - `snippet` (Gmail's ~200-char preview) and `body` (full extracted
-    text) stay distinct — Step 4 reads keywords from one and the dollar
-    amount from the other
+    text) stay distinct — Step 4's rules read subject+snippet, and `body`
+    carries the fuller text no rule names today (see #38)
   - `_gmail_after_filter` subtracts 1 day, coerces naive to UTC, and
     falls through on None/empty/malformed
   - `_queries_with_filter` paren-groups every query under `after:` so
@@ -225,9 +225,10 @@ def test_native_list_params_carry_the_query_and_bound(gmail_for, run_fetch):
 
 def test_snippet_is_the_preview_and_body_is_the_full_text(gmail_for, run_fetch):
     """Native `snippet` is a ~200-char preview; `body` is the full
-    extracted text. Step 4 matches status keywords against subject+snippet
-    and reads the dollar amount out of `body`, so collapsing the two would
-    silently cut its view of the mail."""
+    extracted text. They are projected as distinct fields: Step 4's rules
+    read subject+snippet today, and `body` carries the fuller text (see
+    jbaruch/nanoclaw-orders#38). Collapsing them would silently decide that
+    open question by throwing the body away."""
     msgs = {
         "m": _native_message(
             "m",
