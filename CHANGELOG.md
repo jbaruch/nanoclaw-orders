@@ -2,6 +2,8 @@
 
 All notable changes to this tile are documented here.
 
+## 0.1.20 — 2026-07-16
+
 ### Changed — migrate the order-email fetch from Composio to native Gmail REST (`jbaruch/nanoclaw#638`)
 
 `fetch-order-emails.py` loaded `composio-rest.py` from `nanoclaw-admin`'s heartbeat skill over the co-loaded `tessl__heartbeat` mount. `#638` deletes that file: Google access now goes to the native Gmail REST API through the OneCLI TLS-MITM gateway, which owns the OAuth connection and injects `Authorization: Bearer` on the wire. Separate registries mean admin's publish breaks this tile's 06:15 nightly fetch until this one ships, so this lands immediately after admin.
