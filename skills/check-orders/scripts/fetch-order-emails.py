@@ -222,6 +222,12 @@ def fetch_order_emails(gmail, sanitize, gmail_message, queries) -> dict:
             continue
         msg = gmail_message.parse_message(raw, sanitize)
         if not msg:
+            # Same invariant as the fetch failure above: a message that
+            # won't parse is still an order alert that will not fire, so it
+            # is reported rather than dropped. parse_message returns {} only
+            # for a non-dict resource — a shape Gmail should never send,
+            # which is precisely why it must not pass silently.
+            errors.append({"query": query, "error": f"parse {mid}: unrecognised message resource"})
             continue
         compact.append(
             {

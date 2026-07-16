@@ -37,7 +37,7 @@ Reads `orders_metadata.last_checked` and appends ` after:YYYY/MM/DD` to each que
 {"messages": [{"messageId": "...", "threadId": "...", "from": "...", "to": "...", "subject": "...", "snippet": "...", "body": "...", "date": "...", "labelIds": [...]}], "errors": [{"query": "...", "error": "..."}]}
 ```
 
-`messages` is the sanitized, deduped input for Step 4. `snippet` is Gmail's short preview; `body` is the full extracted text — read both (Step 4 matches status keywords against subject+snippet and finds the dollar amount in `body`). `date` is ISO 8601 UTC.
+`messages` is the sanitized, deduped input for Step 4. `snippet` is Gmail's short preview — it and `subject` are what Step 4's status and amount rules read. `body` is the full extracted text, carried as context for rules that name it; no Step 4 rule does today (`jbaruch/nanoclaw-orders#38`). `date` is ISO 8601 UTC.
 
 Exits non-zero with no stdout (fail-closed) if a shared helper can't be loaded, if the gateway isn't injecting, or if this tier is restricted from Google — the stderr names the remediation.
 

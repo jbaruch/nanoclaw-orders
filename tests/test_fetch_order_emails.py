@@ -314,6 +314,22 @@ def test_per_message_get_failure_is_reported_not_swallowed(gmail_for, run_fetch)
     assert "read timed out" in result["errors"][0]["error"]
 
 
+def test_unparseable_message_is_reported_not_swallowed(gmail_for, run_fetch):
+    """Same invariant as a failed get: a message that won't parse is still
+    an order alert that will not fire. parse_message returns {} for a
+    non-dict resource, which must not slip through as a silent drop."""
+    msgs = {
+        "m1": _native_message("m1", subject="S", body="b"),
+        # A shape Gmail should never send — parse_message answers {}.
+        "m2": "not-a-message-resource",
+    }
+    result = run_fetch(gmail_for({"q": ["m1", "m2"]}, msgs), ["q"])
+    assert [m["messageId"] for m in result["messages"]] == ["m1"]
+    assert len(result["errors"]) == 1
+    assert result["errors"][0]["query"] == "q"
+    assert "m2" in result["errors"][0]["error"]
+
+
 def test_http_error_from_google_becomes_a_query_error(gmail_for, run_fetch):
     """A Google 5xx surfaces as urllib's HTTPError (an OSError subclass) —
     a per-query error marker, not a run-ending fault."""
