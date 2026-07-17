@@ -12,7 +12,7 @@ Process steps in order. Do not skip ahead.
 
 Run this wrapper silently. The inner skill surfaces its own order alerts; the wrapper adds only cadence-cursor management and the observable-silence marker the silent-success watchdog reads from `task_run_logs.result`.
 
-The fire-time precheck (`scripts/precheck-nightly-order-sync.py`) gates wake-ups by a 3-day cadence cap. See `references/cadence-rationale.md`.
+The fire-time precheck (`scripts/precheck-nightly-order-sync.py`) gates wake-ups by the cadence cap (value in the script). See `references/cadence-rationale.md`.
 
 ## Step 1 — Check orders
 
@@ -30,7 +30,7 @@ Reachable only if Step 1 completed without a technical failure. Run the stamp sc
 python3 /home/node/.claude/skills/tessl__nightly-order-sync/scripts/stamp-cursor.py
 ```
 
-Atomic-writes `/workspace/group/state/nightly-order-sync-cursor.json` with `{"schema_version": 1, "last_run": "<now UTC ISO Z>"}`. The precheck reads `last_run` and gates the 3-day cadence. Stdout: `{"status": "stamped", "last_run": "<iso>", "cursor_path": "<path>"}`. Proceed to Step 3.
+Atomic-writes `/workspace/group/state/nightly-order-sync-cursor.json` with `{"schema_version": 1, "last_run": "<now UTC ISO Z>"}`. The precheck reads `last_run` and gates on the cadence cap (value in the script). Stdout: `{"status": "stamped", "last_run": "<iso>", "cursor_path": "<path>"}`. Proceed to Step 3.
 
 ## Step 3 — Observable-silence marker
 

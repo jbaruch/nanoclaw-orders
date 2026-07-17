@@ -14,7 +14,13 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-CADENCE = timedelta(days=3)
+# 60h, not the 72h "every third day" multiple of the 24h daily cron interval:
+# the cursor stamps at run completion, so a cap at an exact multiple leaves the
+# 3-day fire ~71.8h old and slips the run to every fourth day. 60h stays above
+# the 48h two-day fire (so the run isn't every other day) and clears the 72h
+# near-miss — a half-period of slack that also absorbs the local-TZ cron's DST
+# drift. jbaruch/nanoclaw#803, nanoclaw-admin#353.
+CADENCE = timedelta(hours=60)
 DEFAULT_CURSOR_PATH = "/workspace/group/state/nightly-order-sync-cursor.json"
 SUPPORTED_SCHEMA_VERSION = 1
 

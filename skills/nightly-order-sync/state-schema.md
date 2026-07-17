@@ -31,8 +31,8 @@ Per `coding-policy: stateful-artifacts`: every stateful artifact ships a schema 
 ## Lifecycle
 
 - **First run / fresh install** — cursor is absent. The precheck returns `wake_agent: true` with `reason: "no_cursor"`. The first successful run creates the file.
-- **Steady state** — precheck reads the cursor; gates `wake_agent: false` when `now_utc - last_run < 72h`, otherwise `wake_agent: true`.
-- **Run failure** — Step 1 (check-orders) hits a technical failure; Step 2 is skipped intentionally. The cursor stays at its prior value, so the next eligible cycle's precheck either keeps gating (if still inside the 72h window) or wakes the agent for a retry (if the window has elapsed).
+- **Steady state** — precheck reads the cursor; gates `wake_agent: false` when `now_utc - last_run` is under the precheck's `CADENCE` cap, otherwise `wake_agent: true`.
+- **Run failure** — Step 1 (check-orders) hits a technical failure; Step 2 is skipped intentionally. The cursor stays at its prior value, so the next eligible cycle's precheck either keeps gating (if still inside the cap window) or wakes the agent for a retry (if the cap has elapsed).
 - **Cursor corruption** — any read error (missing keys, malformed JSON, naive datetime, schema mismatch) flips the precheck to fail-open (`wake_agent: true`). The next successful run stamps a fresh cursor that self-heals the corruption.
 
 ## Migration policy
