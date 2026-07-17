@@ -53,9 +53,14 @@ def test_decide_wakes_when_cadence_elapsed(precheck, tmp_path):
     assert result["data"]["reason"] == "cadence_elapsed"
 
 
-def test_decide_wakes_at_three_day_boundary(precheck, tmp_path):
+def test_decide_wakes_at_three_day_near_miss(precheck, tmp_path):
+    # jbaruch/nanoclaw#803, jbaruch/nanoclaw-admin#353: the cursor stamps at run
+    # completion, so on a daily cron the "every third day" fire lands ~71.8h
+    # after the last stamp. With the cap below the 72h multiple this MUST wake;
+    # a 72h cap slipped the run to every fourth day. Guards against the cap
+    # regressing back to an exact multiple of the daily cron interval.
     cursor = tmp_path / "cursor.json"
-    cursor.write_text(json.dumps({"schema_version": 1, "last_run": "2026-04-29T03:00:00Z"}))
+    cursor.write_text(json.dumps({"schema_version": 1, "last_run": "2026-04-29T03:12:00Z"}))
     now = datetime(2026, 5, 2, 3, 0, tzinfo=timezone.utc)
     result = precheck.decide(now, cursor)
     assert result["wake_agent"] is True
