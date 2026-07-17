@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Precheck for `tessl__nightly-order-sync`.
 
-Filesystem cadence cap (3-day window). Peeled off the
+Filesystem cadence cap (every-third-day cadence; see CADENCE). Peeled off the
 `nightly-external-sync` bundle so check-orders runs in its own
 bounded container. See `references/cadence-rationale.md`.
 """
@@ -19,7 +19,7 @@ from pathlib import Path
 # 3-day fire ~71.8h old and slips the run to every fourth day. 60h stays above
 # the 48h two-day fire (so the run isn't every other day) and clears the 72h
 # near-miss — a half-period of slack that also absorbs the local-TZ cron's DST
-# drift. jbaruch/nanoclaw#803, nanoclaw-admin#353.
+# drift. jbaruch/nanoclaw#803, jbaruch/nanoclaw-admin#353.
 CADENCE = timedelta(hours=60)
 DEFAULT_CURSOR_PATH = "/workspace/group/state/nightly-order-sync-cursor.json"
 SUPPORTED_SCHEMA_VERSION = 1

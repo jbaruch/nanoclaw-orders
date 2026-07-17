@@ -54,7 +54,7 @@ def test_decide_wakes_when_cadence_elapsed(precheck, tmp_path):
 
 
 def test_decide_wakes_at_three_day_near_miss(precheck, tmp_path):
-    # jbaruch/nanoclaw#803, nanoclaw-admin#353: the cursor stamps at run
+    # jbaruch/nanoclaw#803, jbaruch/nanoclaw-admin#353: the cursor stamps at run
     # completion, so on a daily cron the "every third day" fire lands ~71.8h
     # after the last stamp. With the cap below the 72h multiple this MUST wake;
     # a 72h cap slipped the run to every fourth day. Guards against the cap
