@@ -2,6 +2,8 @@
 
 All notable changes to this tile are documented here.
 
+## 0.1.23 — 2026-07-18
+
 ### Fix — check-orders reads the order total from the email body (`jbaruch/nanoclaw-orders#38`)
 
 Step 4's `amount` rule read `$XX.XX` from subject+snippet only and took the largest match. A live sample of real order emails (the 5 production queries) found the total sits ONLY in the body for 8 of 9 order confirmations — Amazon `Ordered:`/`Shipped:` and store-hosted Shopify confirmations print nothing but `Ordered: <item>` / `Order #X confirmed` above the ~200-char snippet fold — so the old rule defaulted `amount` to `0` for essentially every order. The fetched-but-unread `body` field (`#37` removed a contract sentence that claimed Step 4 read it) is now read by a named rule, resolving the "read or don't project" question in favour of read.
