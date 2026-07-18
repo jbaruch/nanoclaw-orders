@@ -12,8 +12,8 @@ preflight are gone):
   - a query whose list call fails, and a message whose `get` fails, each
     become one `{"query", "error"}` entry — the run still proceeds
   - `snippet` (Gmail's ~200-char preview) and `body` (full extracted
-    text) stay distinct — Step 4's rules read subject+snippet, and `body`
-    carries the fuller text no rule names today (see #38)
+    text) stay distinct — Step 4's status rule reads subject+snippet, and
+    its amount extractor reads `body` (order totals sit below the fold, #38)
   - `_gmail_after_filter` subtracts 1 day, coerces naive to UTC, and
     falls through on None/empty/malformed
   - `_queries_with_filter` paren-groups every query under `after:` so
@@ -354,9 +354,10 @@ def test_queries_module_constant_has_expected_count(fetch_order_emails):
 def test_queries_with_filter_paren_groups_or_query(fetch_order_emails):
     module, _, _ = fetch_order_emails
     out = module._queries_with_filter(" after:2026/05/11")
-    # Query 4 is the OR pair; it must be paren-grouped so `after:` AND-binds
-    # to the whole group, not just the right operand.
-    assert "(from:noreply@shopify.com OR from:no-reply@shopify.com) after:2026/05/11" in out
+    # An OR-bearing query must be paren-grouped so `after:` AND-binds to the
+    # whole query, not just the right operand of the inner OR. Query 3 is the
+    # `"Your order" (… OR …)` compound.
+    assert '("Your order" (shipped OR delivered OR cancelled OR refund)) after:2026/05/11' in out
     # No-suffix path returns the raw queries unchanged.
     assert module._queries_with_filter("") == list(module.QUERIES)
 
