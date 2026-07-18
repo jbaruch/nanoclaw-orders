@@ -82,6 +82,29 @@ def test_subtotal_is_never_mistaken_for_total(extract):
     assert result["matched"] == "labeled_total"
 
 
+def test_hyphenated_sub_total_is_not_treated_as_total(extract):
+    # "Sub-total" (hyphen) slips past a letter-only lookbehind — the char before
+    # "total" is "-", not a letter. With no genuine total label and no amount
+    # above the fold, the result must be 0.0/none, never the sub-total figure.
+    result = extract.extract_amount(
+        subject="Order confirmation",
+        snippet="Your order is confirmed.",
+        body="Sub-total: $84.32 Shipping: $5.00 Estimated tax: $8.20",
+    )
+    assert result["amount"] == 0.0
+    assert result["matched"] == "none"
+
+
+def test_spaced_sub_total_is_not_treated_as_total(extract):
+    result = extract.extract_amount(
+        subject="Order confirmation",
+        snippet="Your order is confirmed.",
+        body="Sub total $84.32 Shipping $5.00 Order Total: $97.52",
+    )
+    assert result["amount"] == 97.52
+    assert result["matched"] == "labeled_total"
+
+
 def test_last_labeled_total_wins_over_earlier_one(extract):
     # A multi-line summary can print a per-shipment "Order Total" before the
     # final "Grand Total"; the last labeled figure is the one charged.

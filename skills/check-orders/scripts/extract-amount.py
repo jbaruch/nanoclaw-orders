@@ -21,13 +21,14 @@ price is never labeled `Total` — and to restrict the unlabeled largest-amount
 fallback to subject+snippet, where the sample showed it is either absent or the
 correct refund total. The body's largest raw amount is never taken.
 
-Precedence (first match wins), searched across `subject | snippet | body`:
+Precedence (the first rule below that matches wins), searched across
+`subject | snippet | body`:
   1. A labeled grand/order/final total (`Order Total: $X`, `Grand Total $X`, …).
-     The LAST such match is used — the grand total is printed after any
-     per-line subtotal, and joining the fields subject→snippet→body puts the
-     body's total last.
-  2. A bare `Total: $X` line. `subtotal`/`item subtotal` are excluded (the
-     label must not be preceded by a letter), so a subtotal never wins over a
+     Of these, the LAST match in the joined text is used — the grand total is
+     printed after any per-line subtotal, and joining the fields
+     subject→snippet→body puts the body's total last.
+  2. A bare `Total: $X` line (last match, same reasoning). `subtotal`,
+     `sub-total`, and `sub total` are excluded, so a subtotal never wins over a
      genuine total.
   3. The largest `$X.XX` in subject+snippet only (the refund / amount-in-subject
      case). Never the body — see above.
@@ -71,12 +72,15 @@ _LABELED_TOTAL = re.compile(
     re.IGNORECASE,
 )
 
-# Bare "Total: $X". The negative lookbehind for a letter excludes "subtotal"
-# (the "b" before "total") while allowing a space-preceded "Order Total"; rule 1
-# already claims the order/grand total when present, so this fires only when a
-# bare total is the sole total label.
+# Bare "Total: $X". Two negative lookbehinds keep a subtotal from being read as
+# the total: the letter guard excludes the joined "subtotal" (the "b" before
+# "total"), and the `sub[ -]` guard excludes the "sub-total" / "sub total"
+# spellings, where the character just before "total" is a hyphen or space and so
+# slips past the letter guard. A space-preceded "Order Total" still matches, but
+# rule 1 already claims the order/grand total when present, so this fires only
+# when a bare total is the sole total label.
 _BARE_TOTAL = re.compile(
-    rf"(?<![A-Za-z])total\s*[:=]?\s*\$\s?({_NUM})",
+    rf"(?<![A-Za-z])(?<!sub[ -])total\s*[:=]?\s*\$\s?({_NUM})",
     re.IGNORECASE,
 )
 
