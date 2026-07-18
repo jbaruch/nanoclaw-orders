@@ -2,6 +2,16 @@
 
 All notable changes to this tile are documented here.
 
+### Fix — check-orders reads the order total from the email body (`jbaruch/nanoclaw-orders#38`)
+
+Step 4's `amount` rule read `$XX.XX` from subject+snippet only and took the largest match. A live sample of real order emails (the 5 production queries) found the total sits ONLY in the body for 8 of 9 order confirmations — Amazon `Ordered:`/`Shipped:` and store-hosted Shopify confirmations print nothing but `Ordered: <item>` / `Order #X confirmed` above the ~200-char snippet fold — so the old rule defaulted `amount` to `0` for essentially every order. The fetched-but-unread `body` field (`#37` removed a contract sentence that claimed Step 4 read it) is now read by a named rule, resolving the "read or don't project" question in favour of read.
+
+New `scripts/extract-amount.py` owns the extraction: prefer a labeled `Order Total` / `Grand Total` / `Total` line (searched subject→snippet→body, last match wins) over any largest-amount pick, and restrict the unlabeled largest-amount fallback to subject+snippet. The sample showed why "largest in body" is wrong — two of three Shopify bodies carried a struck-through list price ($98.99, $69.00) larger than the true total ($94.14, $62.10); a labeled total is never a struck price. `subtotal` is excluded from the bare-`Total` match. `tests/test_extract_amount.py` covers the body-only total, the struck-price trap, refund-in-snippet, and subtotal disambiguation.
+
+Not addressed here (separate follow-up): the `from:*@shopify.com` production query matches nothing, because Shopify sends order mail from each merchant's own domain — real Shopify confirmations are caught only by the subject/`"Your order"` queries.
+
+**Surface sync:** `skills/check-orders/scripts/extract-amount.py` (new), `tests/test_extract_amount.py` (new), `skills/check-orders/SKILL.md` (Step 2 body note, Step 4 amount rule + invocation), `skills/check-orders/scripts/fetch-order-emails.py` (docstring + projection comment), `README.md` (script list).
+
 ## 0.1.21 — 2026-07-18
 
 ### Fix — nightly-order-sync cadence cap drops below the cron-interval multiple (`jbaruch/nanoclaw#803`)

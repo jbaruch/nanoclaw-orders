@@ -70,6 +70,7 @@ All four resolve when admin co-loads with this overlay (the owner's main/trusted
 - `scripts/read-last-checked.py` — reads the `last_checked` cursor from `orders_metadata`
 - `scripts/fetch-order-emails.py` — multi-query native Gmail fetch, cross-query dedup, in-container sanitization, compact-row projection
 - `scripts/compute-order-id.py` — deterministic SHA-1-prefix order id from `(source, order_date, description)`
+- `scripts/extract-amount.py` — extracts the order total from a sanitized email, preferring a labeled total line over any largest-amount pick
 - `scripts/apply-order.py` — upserts an order row on `email_message_id`
 - `scripts/apply-exclusions.py` — owns the user-preference exclusion table and matching; unflags matches and emits the id list Step 8 consumes via `EXCLUDED_IDS`
 - `scripts/flag-anomalies.py` — applies the anomaly predicates (owns the statuses, dollar threshold, age cutoffs)

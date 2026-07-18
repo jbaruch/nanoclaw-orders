@@ -37,7 +37,7 @@ Reads `orders_metadata.last_checked` and appends ` after:YYYY/MM/DD` to each que
 {"messages": [{"messageId": "...", "threadId": "...", "from": "...", "to": "...", "subject": "...", "snippet": "...", "body": "...", "date": "...", "labelIds": [...]}], "errors": [{"query": "...", "error": "..."}]}
 ```
 
-`messages` is the sanitized, deduped input for Step 4. `snippet` is Gmail's short preview — it and `subject` are what Step 4's status and amount rules read. `body` is the full extracted text, carried as context for rules that name it; no Step 4 rule does today (`jbaruch/nanoclaw-orders#38`). `date` is ISO 8601 UTC.
+`messages` is the sanitized, deduped input for Step 4. `snippet` is Gmail's short preview — it and `subject` are what Step 4's status rule reads. `body` is the full extracted text; Step 4's `amount` extractor reads it (order totals sit below the snippet fold — `jbaruch/nanoclaw-orders#38`), while the status rule stays on subject+snippet. `date` is ISO 8601 UTC.
 
 Exits non-zero with no stdout (fail-closed) if a shared helper can't be loaded, if the gateway isn't injecting, or if this tier is restricted from Google — the stderr names the remediation.
 
@@ -85,13 +85,21 @@ Extract fields per these maps:
 
 | Field | Extraction rule |
 |-------|----------------|
-| `amount` | Dollar amount from subject or snippet (`$XX.XX`, `Total: $XX`); if multiple, use largest; default `0` |
+| `amount` | Order total in USD. Pipe the sanitized `{subject, snippet, body}` to `scripts/extract-amount.py` and use its `amount`. The label-precedence and fallback rules are owned by the script (`jbaruch/nanoclaw-orders#38`) — do not re-derive the amount by eye. |
 | `currency` | `"USD"` |
 | `description` | Subject stripped of boilerplate (e.g. remove "Your Amazon.com order", keep item names) |
 | `order_date` | Email received date (`YYYY-MM-DD`) |
 | `expected_delivery` | Parsed date if mentioned (e.g. "arrives by Dec 5"); `null` otherwise |
 | `email_message_id` | Gmail message ID |
 | `to_address` | The `To:` header (used by Step 6 exclusions) |
+
+For `amount`, run the extractor per email against the fields Step 2 already handed you (all sanitized — the `body` never re-enters from raw Gmail):
+
+```bash
+echo '{"subject": "...", "snippet": "...", "body": "..."}' | python3 scripts/extract-amount.py
+```
+
+Stdout: `{"amount": <float>, "currency": "USD", "matched": "labeled_total" | "bare_total" | "subject_snippet_largest" | "none"}`. Use the returned `amount`. Real order confirmations put the total only in the body below the snippet fold, so most orders resolve via a labeled total line — see the precedence in `scripts/extract-amount.py` (module docstring).
 
 ## Step 5 — Upsert each parsed email into the orders table
 
