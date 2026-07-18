@@ -66,20 +66,13 @@ Proceed immediately to Step 4.
 
 ## Step 4 — Parse each email
 
-Extract fields per these maps:
+For `source` and `status`, run the classifier per email against the fields Step 2 handed you:
 
-**Source** (sender domain): amazon.com → `"amazon"`, shopify.com → `"shopify"`, shop.app → `"shop"`, else → `"other"`.
+```bash
+echo '{"from": "...", "subject": "...", "snippet": "..."}' | python3 scripts/classify-order.py
+```
 
-**Status** (subject/snippet keywords):
-
-| Keywords | Status |
-|----------|--------|
-| "on the way", "shipped" | `"shipped"` |
-| "has been delivered", "delivered" | `"delivered"` |
-| "cancelled", "canceled" | `"cancelled"` |
-| "refunded", "refund" | `"refunded"` |
-| "order confirmation", "ordered" | `"ordered"` |
-| no match | `"unknown"` |
+Stdout: `{"source": "amazon" | "shopify" | "shop" | "other", "status": "shipped" | "delivered" | "cancelled" | "refunded" | "ordered" | "unknown"}`. Use both values as returned. The sender-domain and keyword maps are owned by the script (`jbaruch/nanoclaw-orders#44`) — do not re-derive by eye.
 
 **Remaining fields:**
 
