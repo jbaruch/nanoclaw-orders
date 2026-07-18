@@ -36,10 +36,10 @@ from the Composio path, so SKILL.md Steps 3-10 are untouched:
 `snippet` is Gmail's own ~200-char preview and `body` is the full
 extracted text — the same split the Composio path projected, where
 `snippet` came from Composio's snippet object and `body` from
-`messageText`. Step 4's status and amount rules read subject+snippet;
-`body` is carried as fuller context no rule names today. Keeping them
-distinct preserves that choice rather than deciding it here — whether
-amount extraction should read `body` is jbaruch/nanoclaw-orders#38.
+`messageText`. Step 4's status rule reads subject+snippet; its `amount`
+extractor reads `body` too, because order totals sit below the snippet
+fold (jbaruch/nanoclaw-orders#38). Keeping the two fields distinct lets
+each rule read the surface it needs.
 
 Per-query error isolation: a query whose list call fails, and a message
 whose `get` fails, each become one `{"query", "error"}` entry rather
@@ -242,9 +242,9 @@ def fetch_order_emails(gmail, sanitize, gmail_message, queries) -> dict:
                 # Composio path projected from its snippet object. Step 4
                 # matches status keywords against subject+snippet.
                 "snippet": msg.get("snippet"),
-                # Full extracted body, carried as context: no Step 4 rule
-                # reads it today (see #38), and it stays distinct from the
-                # preview above rather than collapsing the two.
+                # Full extracted body: Step 4's amount extractor reads it
+                # (order totals sit below the snippet fold, see #38); it stays
+                # distinct from the preview above rather than collapsing the two.
                 # No truncation: parse_message hands every field through
                 # sanitize(), which already caps at its 2000-char max_len.
                 "body": msg.get("body"),
