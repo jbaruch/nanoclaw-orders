@@ -89,11 +89,21 @@ _SHARED_MODULES = {
 # the Composio path passed, so the migration doesn't change the window.
 MAX_RESULTS = 20
 
+# The Shopify query targets `t.shopifyemail.com` — Shopify's TRANSACTIONAL
+# sending subdomain, which carries order confirmations, shipment, and
+# cancellation mail at ~100% precision. Marketing rides the `m.`/`g.`
+# subdomains instead, so this brings in no promo bleed. The old
+# `from:*@shopify.com` query matched nothing: Shopify never sends order mail
+# from shopify.com (jbaruch/nanoclaw-orders#44). Store-hosted senders whose
+# From is the merchant's OWN domain (e.g. support@pacagen.com) carry no
+# Gmail-queryable Shopify signal and are caught only by the subject/"Your
+# order" queries below — this query recovers the platform-hosted stream, not
+# every Shopify order.
 QUERIES = [
     "from:auto-confirm@amazon.com",
     "from:shipment-tracking@amazon.com",
     '"Your order" (shipped OR delivered OR cancelled OR refund)',
-    "from:noreply@shopify.com OR from:no-reply@shopify.com",
+    "from:t.shopifyemail.com",
     "subject:(order confirmation OR order shipped OR order delivered OR order cancelled OR refund)",
 ]
 

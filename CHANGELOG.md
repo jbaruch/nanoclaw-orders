@@ -2,6 +2,16 @@
 
 All notable changes to this tile are documented here.
 
+### Fix — check-orders catches Shopify orders via the transactional sending subdomain (`jbaruch/nanoclaw-orders#44`)
+
+The Shopify query `from:noreply@shopify.com OR from:no-reply@shopify.com` matched **nothing** — Shopify never sends order mail from `shopify.com`. A live sample found Shopify order mail splits two ways: platform-hosted senders on `store+NNN@t.shopifyemail.com` (55 threads, all transactional) and merchant-custom-domain senders (pacagen.com, knifeaid.com, talesofvalhalla.com) with no queryable Shopify signal. The existing subject-keyword queries recalled only 28 of the 55 platform-hosted orders (query 5 caught **zero** — Shopify subjects read `Order #NNN confirmed`, never the `order confirmation` bigram), so 27 Shopify orders were missed entirely.
+
+Replace the dead query with `from:t.shopifyemail.com` — Shopify's **transactional** subdomain, ~100% order precision. Marketing rides the `m.`/`g.` subdomains, so the swap brings in no promo bleed. Store-hosted senders on their own domain still depend on the subject/`"Your order"` queries — this recovers the platform-hosted stream, not every Shopify order.
+
+Fetching the emails is not enough on its own: the recovered messages come from `store+NNN@t.shopifyemail.com` with subjects like `Order #NNN confirmed`, which the old prose maps would have classified as `source="other"` / `status="unknown"`. The `source`/`status` classification moves out of the Step 4 prose table into a new tested `scripts/classify-order.py`: `shopifyemail.com` (any subdomain) normalizes to `shopify`, and `confirmed` joins the `ordered` keywords, with status priority ordered so a shipment/cancellation/refund signal still outranks a bare `confirmed`. Merchant-custom-domain senders remain `source="other"` (no queryable Shopify signal) — the documented limitation.
+
+**Surface sync:** `skills/check-orders/scripts/fetch-order-emails.py` (the `QUERIES` constant + rationale comment), `skills/check-orders/scripts/classify-order.py` (new), `skills/check-orders/SKILL.md` (Step 4 source/status now call the classifier), `tests/test_classify_order.py` (new), `README.md` (script list). The query and map logic live in the scripts per `coding-policy: script-as-black-box`.
+
 ## 0.1.23 — 2026-07-18
 
 ### Fix — check-orders reads the order total from the email body (`jbaruch/nanoclaw-orders#38`)
