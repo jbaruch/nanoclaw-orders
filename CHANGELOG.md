@@ -2,6 +2,8 @@
 
 All notable changes to this tile are documented here.
 
+## 0.1.24 — 2026-07-19
+
 ### Fix — check-orders catches Shopify orders via the transactional sending subdomain (`jbaruch/nanoclaw-orders#44`)
 
 The Shopify query `from:noreply@shopify.com OR from:no-reply@shopify.com` matched **nothing** — Shopify never sends order mail from `shopify.com`. A live sample found Shopify order mail splits two ways: platform-hosted senders on `store+NNN@t.shopifyemail.com` (55 threads, all transactional) and merchant-custom-domain senders (pacagen.com, knifeaid.com, talesofvalhalla.com) with no queryable Shopify signal. The existing subject-keyword queries recalled only 28 of the 55 platform-hosted orders (query 5 caught **zero** — Shopify subjects read `Order #NNN confirmed`, never the `order confirmation` bigram), so 27 Shopify orders were missed entirely.
