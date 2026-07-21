@@ -20,6 +20,8 @@ permissions:
 
 jobs:
   publish:
+    # This reusable-workflow SHA pin is renewed weekly by .github/dependabot.yml
+    # (github-actions ecosystem), per dependency-management Freshness.
     uses: jbaruch/coding-policy/.github/workflows/publish-plugin.yml@b7eb9d08b78f72810891aa5fe7bf3e4fa6eb55f6
     # Forward only the token the reusable workflow declares (not `inherit`).
     secrets:
