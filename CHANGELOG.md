@@ -2,6 +2,30 @@
 
 All notable changes to this tile are documented here.
 
+## 0.1.28 — 2026-07-21
+
+### CI — PR-time fleet-review trigger
+
+Added a thin `review-trigger.yml` that dispatches an immediate single-PR review in `jbaruch/coding-policy` so the policy verdict lands before merge; the coding-policy cron poll stays the backstop. No tile-content change.
+
+## 0.1.27 — 2026-07-21
+
+### CI — Move to the central fleet policy reviewer
+
+Migrated from the per-repo review workflow to the central `jbaruch/coding-policy` fleet reviewer (one ChatGPT-subscription credential held only in coding-policy). No tile-content change.
+
+## 0.1.26 — 2026-07-20
+
+### CI — Repoint copilot-instructions at the review workflow
+
+Docs-only pointer update accompanying the reviewer migration. No tile-content change.
+
+## 0.1.25 — 2026-07-20
+
+### CI — Migrate to the Codex CLI subscription reviewer
+
+Switched the policy reviewer to the Codex CLI authenticated by a ChatGPT subscription (no API key). No tile-content change.
+
 ## 0.1.24 — 2026-07-19
 
 ### Fix — check-orders catches Shopify orders via the transactional sending subdomain (`jbaruch/nanoclaw-orders#44`)
