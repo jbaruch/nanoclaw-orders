@@ -2,6 +2,8 @@
 
 All notable changes to this tile are documented here.
 
+## 0.1.33 — 2026-08-05
+
 ### Removed — `tests/test_changelog_sync.py`, a guard with no consumer
 
 The test asserted that `CHANGELOG.md`'s first `## X.Y.Z` heading equals `tile.json`'s version. That invariant cannot hold in this fleet: Dependabot cannot author CHANGELOG entries, fleet convention exempts pure plumbing bumps from carrying one, and the shared stamp step is a documented no-op when there is nothing un-headed to stamp. So every bot merge advances the manifest past the CHANGELOG by construction.
