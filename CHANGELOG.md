@@ -2,6 +2,20 @@
 
 All notable changes to this tile are documented here.
 
+### CI — backfill the 0.1.29 heading its publish never stamped
+
+`test_first_changelog_heading_matches_tile_version` has failed on every PR and every push to main since 0.1.29 published on 2026-07-21: `tile.json` declared 0.1.29 while the newest CHANGELOG heading was still 0.1.28. That red main blocked all three of this repo's open Dependabot PRs.
+
+The mechanism is the one the test was written for (issue #17, versions 0.1.7–0.1.9). #47 was pure CI plumbing, so it carried no un-headed `### ` entry block; the publish workflow's stamp step is a documented no-op when the top section already has a `## ` heading, so it wrote nothing while `tile.json` advanced alone. The guard caught it one version deep, as designed.
+
+This backfills 0.1.29's section below. That entry is itself the un-headed block for the release publishing it — a CHANGELOG-only PR shipped without one would reproduce the exact gap it is fixing.
+
+## 0.1.29 — 2026-07-21
+
+### CI — adopt the canonical reusable publish workflow
+
+Replaced the per-repo publish workflow with a thin `publish.yml` delegating to the fleet's canonical reusable workflow `jbaruch/coding-policy/.github/workflows/publish-plugin.yml` (`jbaruch/coding-policy#206`, Phase 2). No behavior change: the same `tessl plugin lint` + changed-only skill review (`credit-outage: skip`) + publish, defined once instead of per-repo. The workflow display name is unchanged so run-name watchers keep working, and the secret is scoped to `TESSL_TOKEN`. (#47)
+
 ## 0.1.28 — 2026-07-21
 
 ### CI — PR-time fleet-review trigger
