@@ -2,6 +2,22 @@
 
 All notable changes to this tile are documented here.
 
+### CI — refresh review-trigger.yml from the canonical template
+
+The consumer copy predated the template's `github.actor != 'dependabot[bot]'` guard, so the workflow fired on Dependabot PRs, read an empty `FLEET_DISPATCH_TOKEN` (their runs use the Dependabot secret store, not Actions), and its own guard exited 1 — a permanent red check on every dependency PR. The coding-policy cron poll reviews those PRs regardless, so nothing went unreviewed. Refreshed to the template verbatim so this repo stops drifting from canonical.
+
+### Fixed — backfill the 0.1.31 heading its publish never stamped
+
+Same failure as 0.1.30's entry, one release later: #48 was a Dependabot CI bump carrying no un-headed `### ` block, the stamp step had nothing to stamp, and `tile.json` advanced to 0.1.31 alone while the newest heading stayed 0.1.30.
+
+Backfilling is not a fix, it is the third instance of one defect (0.1.7–0.1.9 as issue #17, then 0.1.29, now 0.1.31). Dependabot cannot author CHANGELOG entries, and fleet convention exempts pure plumbing bumps from needing one, so every future dependency merge into this repo reproduces this exactly. The durable fix belongs in the shared stamp step — emit a bodyless `## <version> — <date>` heading when a release has no un-headed entries — so the manifest can never advance past the CHANGELOG regardless of what a PR carries. Tracked separately against `jbaruch/coding-policy`.
+
+## 0.1.31 — 2026-08-05
+
+### CI — bump actions/setup-python from 6 to 7
+
+Dependabot bump of `actions/setup-python` from v6 to v7 in the test workflow. (#48)
+
 ## 0.1.30 — 2026-08-05
 
 ### CI — backfill the 0.1.29 heading its publish never stamped
