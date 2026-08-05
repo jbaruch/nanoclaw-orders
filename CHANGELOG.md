@@ -2,6 +2,8 @@
 
 All notable changes to this tile are documented here.
 
+## 0.1.30 — 2026-08-05
+
 ### CI — backfill the 0.1.29 heading its publish never stamped
 
 `test_first_changelog_heading_matches_tile_version` has failed on every PR and every push to main since 0.1.29 published on 2026-07-21: `tile.json` declared 0.1.29 while the newest CHANGELOG heading was still 0.1.28. That red main blocked all three of this repo's open Dependabot PRs.
