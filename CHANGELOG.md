@@ -2,6 +2,8 @@
 
 All notable changes to this tile are documented here.
 
+## 0.1.32 — 2026-08-05
+
 ### CI — refresh review-trigger.yml from the canonical template
 
 The consumer copy predated the template's `github.actor != 'dependabot[bot]'` guard, so the workflow fired on Dependabot PRs, read an empty `FLEET_DISPATCH_TOKEN` (their runs use the Dependabot secret store, not Actions), and its own guard exited 1 — a permanent red check on every dependency PR. The coding-policy cron poll reviews those PRs regardless, so nothing went unreviewed. Refreshed to the template verbatim so this repo stops drifting from canonical.
