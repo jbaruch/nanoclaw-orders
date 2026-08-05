@@ -2,6 +2,16 @@
 
 All notable changes to this tile are documented here.
 
+### Removed — `tests/test_changelog_sync.py`, a guard with no consumer
+
+The test asserted that `CHANGELOG.md`'s first `## X.Y.Z` heading equals `tile.json`'s version. That invariant cannot hold in this fleet: Dependabot cannot author CHANGELOG entries, fleet convention exempts pure plumbing bumps from carrying one, and the shared stamp step is a documented no-op when there is nothing un-headed to stamp. So every bot merge advances the manifest past the CHANGELOG by construction.
+
+What it actually cost, all on 2026-08-05: main red for 15 days from the 0.1.29 publish, three Dependabot PRs blocked behind it, and two backfill PRs (#51, #52) to clear the same defect twice in one day. It would have fired again on the next dependency merge.
+
+What it bought was heading completeness for releases that contain nothing to describe — this repo's plugin CHANGELOG is read for its substantive entries, not as a version ledger, and a bodyless `## 0.1.31` heading carries no information for anyone. The alternative fix considered and rejected was teaching the shared stamp step to emit those bodyless headings fleet-wide: 40 such releases exist across the six sibling repos, and stamping them would add noise to six CHANGELOGs to satisfy a check only this repo ran.
+
+Substantive changes still get CHANGELOG entries under the un-headed `### ` convention, unchanged. Only the completeness assertion is gone.
+
 ## 0.1.32 — 2026-08-05
 
 ### CI — refresh review-trigger.yml from the canonical template
