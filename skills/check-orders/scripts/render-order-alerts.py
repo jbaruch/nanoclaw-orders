@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render flagged orders as a ready-to-send Telegram HTML alert.
 
-Step 10 of check-orders SKILL.md: `get-flagged-orders.py` emits raw
+Step 12 of check-orders SKILL.md: `get-flagged-orders.py` emits raw
 rows whose `description` derives from email subject/body text —
 untrusted, sender-controlled content. A subject containing `<`, `>`,
 `&`, or Telegram HTML tags would break the message parse (suppressing

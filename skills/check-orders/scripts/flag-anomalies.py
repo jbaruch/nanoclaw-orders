@@ -1,26 +1,42 @@
 #!/usr/bin/env python3
-"""Apply Step 8 flagging rules to all non-excluded orders.
+"""Apply Step 10 flagging rules to all non-excluded orders.
 
-Step 8 of check-orders SKILL.md — set `flagged=1` and `flag_reason=...`
+Step 10 of check-orders SKILL.md — set `flagged=1` and `flag_reason=...`
 for orders that match an anomaly rule, AND unflag rows that are past
 their cutoff. Excluded orders (Step 6) must already have been
 unflagged by the time this runs; this pass intentionally does NOT
 look at exclusion rules — it just applies the anomaly conditions to
 whatever is currently in the table.
 
-Anomaly rules. Where a row could match multiple rules (e.g. a
-`shipped` row with `amount > 200` AND an overdue `expected_delivery`),
-the first match wins per the order below — the large-purchase rule
-takes precedence over the overdue-delivery rule because the dollar
-amount is the more user-actionable signal:
+Anomaly rules. Where a row could match multiple rules (e.g. an
+`ordered` row that is both overdue on a concrete `expected_delivery`
+AND supplied as stuck), the first match wins per the order below:
 
-  | match                                      | flag_reason             | cutoff                |
-  |--------------------------------------------|-------------------------|-----------------------|
-  | status=cancelled                           | "Order cancelled"       | 14d from order_date   |
-  | status=refunded                            | "Refund/return"         | 14d from order_date   |
-  | non-delivered, amount>200                  | "Large purchase: $X.YY" | none                  |
-  | delivered, amount>200                      | "Large purchase: $X.YY" | 14d from order_date   |
-  | shipped|ordered, expected_delivery >2d ago | "Overdue delivery"      | 30d from exp_delivery |
+  | match                                      | flag_reason                | cutoff              |
+  |--------------------------------------------|----------------------------|---------------------|
+  | status=cancelled                           | "Order cancelled"          | 14d from order_date |
+  | status=refunded                            | "Refund/return"            | 14d from order_date |
+  | shipped|ordered, expected_delivery >2d ago | "Overdue delivery"         | 30d from exp_deliv  |
+  | status=ordered, id in STUCK_IDS            | "Ordered, not yet shipped" | supplied by caller  |
+
+Stuck-order rule (`jbaruch/nanoclaw-orders#55`): the primary signal the
+owner wants is "placed weeks ago, never shipped". Deciding which orders
+are stuck needs a candidate row paired against shipment rows by an order
+number written in sender-controlled subject text — that pairing is
+reasoning, not scripting (`jbaruch/coding-policy: script-delegation`, the
+Regex Trap), so it happens in the agent. The deterministic halves live in
+scripts: `list-stuck-candidates.py` (Step 8) selects the aged `ordered`
+rows and shipment rows; the agent pairs them (Step 9) and passes the
+surviving stuck ids here via the STUCK_IDS env var (comma-separated,
+same shape as EXCLUDED_IDS). This script only writes the flag for ids it
+is handed — it never parses a description.
+
+The "Large purchase" rule was removed (`#55`): it flagged self-made
+purchases the owner already knew about (concert tickets, a laptop) with no
+action attached, and it was the reason one logical order surfaced twice —
+once per email — since both the confirmation and the shipment row cleared
+the dollar threshold. Rows previously carrying a `Large purchase: $...`
+reason are unflagged by the past-cutoff branch on the next pass.
 
 Stdout on success: a single JSON object summarising the pass:
     {"flagged": <int>, "unflagged": <int>, "ids_flagged": [...], "ids_unflagged": [...]}
@@ -37,7 +53,6 @@ import sys
 from datetime import date
 
 DB_PATH = os.environ.get("ORDERS_DB_PATH", "/workspace/store/messages.db")
-LARGE_PURCHASE_THRESHOLD = 200.0
 
 
 def _within_days(value, days: int) -> bool:
@@ -78,17 +93,19 @@ def _expected_delivery_within_30_days(value: str | None) -> bool:
     return _within_days(value, 30)
 
 
-def _classify(row: dict) -> tuple[bool, str | None]:
+def _classify(row: dict, stuck_ids: set) -> tuple[bool, str | None]:
     """Return (should_flag, flag_reason) for a single order row.
 
-    Implements the anomaly rules above. Order matters when multiple
-    rules can match the same row (e.g. shipped + amount > 200 + overdue
-    expected_delivery). First-match-wins: the dollar-amount rule is
-    listed before the overdue rule because the user-actionable signal
-    is "money tied up" rather than "delivery is late".
+    `stuck_ids` is the set of `ordered`-row ids the agent's Step 9 pairing
+    determined are stuck (aged, with no matching shipment). This script
+    trusts that structured list rather than re-deriving order identity
+    from free text.
+
+    Implements the anomaly rules above. First-match-wins in table order:
+    a cancellation/refund outranks an overdue signal, and a concrete
+    overdue `expected_delivery` outranks the supplied stuck signal.
     """
     status = row["status"]
-    amount = row["amount"]
     order_date = row["order_date"]
     expected_delivery = row["expected_delivery"]
 
@@ -96,35 +113,14 @@ def _classify(row: dict) -> tuple[bool, str | None]:
         return True, "Order cancelled"
     if status == "refunded" and _within_days(order_date, 14):
         return True, "Refund/return"
-    # `amount` lands here as whatever `sqlite3.Row` returns from the
-    # REAL column, which in practice is `None` or a number — but
-    # SQLite is type-permissive (a string snuck into a REAL column on
-    # a hand-edited row would surface here too) and Python would
-    # raise TypeError on `amount > 200` if it's not numeric. Narrow
-    # to int/float (excluding bool, which is technically int) before
-    # comparing; anything else logs and skips this rule for the row.
-    if (
-        amount is not None
-        and isinstance(amount, (int, float))
-        and not isinstance(amount, bool)
-        and amount > LARGE_PURCHASE_THRESHOLD
-    ):
-        if status != "delivered":
-            return True, f"Large purchase: ${amount:.2f}"
-        if status == "delivered" and _within_days(order_date, 14):
-            return True, f"Large purchase: ${amount:.2f}"
-    elif amount is not None and not isinstance(amount, (int, float)):
-        sys.stderr.write(
-            f"flag-anomalies: order {row['id']} has non-numeric "
-            f"amount={amount!r}; skipping the large-purchase rule for "
-            f"this row\n"
-        )
     if (
         status in ("shipped", "ordered")
         and _expected_delivery_overdue(expected_delivery)
         and _expected_delivery_within_30_days(expected_delivery)
     ):
         return True, "Overdue delivery"
+    if status == "ordered" and row["id"] in stuck_ids:
+        return True, "Ordered, not yet shipped"
     return False, None
 
 
@@ -145,14 +141,19 @@ def main() -> int:
         excluded_ids_raw = os.environ.get("EXCLUDED_IDS", "")
         excluded_ids = {s.strip() for s in excluded_ids_raw.split(",") if s.strip()}
 
+        # Stuck-order ids the agent paired in Step 9 (comma-separated,
+        # same shape as EXCLUDED_IDS). Empty = nothing stuck this pass.
+        stuck_ids_raw = os.environ.get("STUCK_IDS", "")
+        stuck_ids = {s.strip() for s in stuck_ids_raw.split(",") if s.strip()}
+
         rows = conn.execute(
-            "SELECT id, status, amount, order_date, expected_delivery, "
-            "flagged, flag_reason FROM orders"
+            "SELECT id, status, order_date, expected_delivery, flagged, flag_reason FROM orders"
         ).fetchall()
+
         for row in rows:
             if row["id"] in excluded_ids:
                 continue
-            should_flag, reason = _classify(dict(row))
+            should_flag, reason = _classify(dict(row), stuck_ids)
             current_flagged = bool(row["flagged"])
             if should_flag and (not current_flagged or row["flag_reason"] != reason):
                 conn.execute(

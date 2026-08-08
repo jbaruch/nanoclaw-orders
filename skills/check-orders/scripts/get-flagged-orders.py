@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Fetch currently-flagged orders for the Step 10 alert message.
+"""Fetch currently-flagged orders for the Step 12 alert message.
 
-Step 10 of check-orders SKILL.md. Extracted from inline SKILL prose
+Step 12 of check-orders SKILL.md. Extracted from inline SKILL prose
 per `coding-policy: script-delegation`. Returns the same row shape
 as `tessl__morning-brief/scripts/fetch-flagged-orders.py` because
 both rendering paths consume the same fields (description,

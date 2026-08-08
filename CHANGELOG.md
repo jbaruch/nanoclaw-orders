@@ -2,6 +2,14 @@
 
 All notable changes to this tile are documented here.
 
+### Fixed — `check-orders` flags stuck orders and drops large-purchase noise
+
+`check-orders` gained the primary signal the owner actually wants surfaced (`jbaruch/nanoclaw-orders#55`): an order stuck in status `ordered` for 7–90 days with no matching shipment is now flagged "Ordered, not yet shipped". Detection is split to keep the deterministic and reasoning halves in their right places — a new `list-stuck-candidates.py` selects the aged `ordered` rows and shipment rows (SKILL Step 8), the agent pairs them by the order number written in each subject and returns the unpaired ids (Step 9), and `flag-anomalies.py` flags exactly those `STUCK_IDS` (Step 10). Pairing lives in the agent because matching sender-controlled subject text is reasoning, not scripting. So the confirmation and "on its way" emails of one order collapse — an `ordered` row whose order shipped is not counted as stuck.
+
+Removed the "Large purchase" rule. It flagged purchases the owner made himself and already knew about (concert tickets, a laptop) with no action attached, and it was why one logical order surfaced twice in a brief — both the confirmation and the shipment row cleared the old $200 threshold. Rows carrying a legacy `Large purchase: $...` reason unflag on the next pass.
+
+Deeper follow-ups from the same issue are tracked separately: true row-level dedup by order number (persisted, replacing the per-run agent pairing), merchant capture, and rejecting non-date `expected_delivery` values at ingestion.
+
 ## 0.1.33 — 2026-08-05
 
 ### Removed — `tests/test_changelog_sync.py`, a guard with no consumer

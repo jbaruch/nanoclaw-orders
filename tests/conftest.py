@@ -204,6 +204,20 @@ def flag_anomalies(tmp_path, monkeypatch):
 
 
 @pytest.fixture
+def list_stuck_candidates(tmp_path, monkeypatch):
+    """Load check-orders/scripts/list-stuck-candidates.py with DB_PATH
+    pointing at a tmp_path-rooted seeded SQLite file."""
+    db_path = tmp_path / "messages.db"
+    _seed_orders_db(str(db_path))
+    module = _load(
+        "list_stuck_candidates_under_test",
+        "skills/check-orders/scripts/list-stuck-candidates.py",
+    )
+    monkeypatch.setattr(module, "DB_PATH", str(db_path))
+    return module, db_path
+
+
+@pytest.fixture
 def promote_stale_shipped(tmp_path, monkeypatch):
     """Load check-orders/scripts/promote-stale-shipped.py with DB_PATH
     pointing at a tmp_path-rooted seeded SQLite file."""
