@@ -32,7 +32,7 @@ import json
 import os
 import sqlite3
 import sys
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 DB_PATH = os.environ.get("ORDERS_DB_PATH", "/workspace/store/messages.db")
 
@@ -48,6 +48,32 @@ REQUIRED_FIELDS = (
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _normalize_expected_delivery(value, order_id: str):
+    """Return a stored `expected_delivery`: an ISO date, or None.
+
+    The agent parses `expected_delivery` from free-text subjects in Step 4,
+    which lets scraped non-dates ("today", "March", "overnight") through
+    (`jbaruch/nanoclaw-orders#55`). Only a value that parses as an ISO date
+    (first 10 chars, mirroring the flag-anomalies date guards) is stored;
+    anything else is dropped to NULL so it never feeds the overdue check.
+    None passes through unchanged (no expected delivery was mentioned).
+    """
+    if value is None:
+        return None
+    if isinstance(value, str) and value.strip():
+        try:
+            date.fromisoformat(value.strip()[:10])
+            return value
+        except ValueError:
+            pass
+    sys.stderr.write(
+        f"apply-order.py: dropping non-date expected_delivery={value!r} for "
+        f"order {order_id} — only ISO-8601 dates are stored so the overdue "
+        f"check never keys off scraped free text\n"
+    )
+    return None
 
 
 def main() -> int:
@@ -69,6 +95,7 @@ def main() -> int:
         return 2
 
     last_updated = _now_iso()
+    expected_delivery = _normalize_expected_delivery(order.get("expected_delivery"), order["id"])
     conn = None
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -104,7 +131,7 @@ def main() -> int:
                 order.get("currency"),
                 order["description"],
                 order["order_date"],
-                order.get("expected_delivery"),
+                expected_delivery,
                 order["email_message_id"],
                 order.get("to_address"),
                 last_updated,
