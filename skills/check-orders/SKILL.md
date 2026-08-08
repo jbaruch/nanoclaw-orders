@@ -1,6 +1,6 @@
 ---
 name: check-orders
-description: Fetches order-related emails from Gmail, updates the orders SQLite table, and flags recent anomalies — cancellations/refunds, overdue deliveries, and orders stuck in 'ordered' that never shipped (statuses and age cutoffs owned by flag-anomalies.py). Silent on normal order flow; older flagged events age out automatically to keep the alert channel signal-only. Use when the user asks about order status, order tracking, order emails, shipment status, purchase alerts, or needs to sync Gmail order data with the orders database.
+description: Fetches order-related emails from Gmail, updates the orders SQLite table, and flags recent anomalies — cancellations/refunds and overdue deliveries (statuses and per-status cutoffs owned by flag-anomalies.py), plus orders stuck in 'ordered' that never shipped (the stuck age window owned by list-stuck-candidates.py). Silent on normal order flow; older flagged events age out automatically to keep the alert channel signal-only. Use when the user asks about order status, order tracking, order emails, shipment status, purchase alerts, or needs to sync Gmail order data with the orders database.
 ---
 
 # Check Orders
