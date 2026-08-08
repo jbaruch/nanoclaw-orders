@@ -2,6 +2,8 @@
 
 All notable changes to this tile are documented here.
 
+## 0.1.34 — 2026-08-08
+
 ### Fixed — `check-orders` flags stuck orders and drops large-purchase noise
 
 `check-orders` gained the primary signal the owner actually wants surfaced (`jbaruch/nanoclaw-orders#55`): an order stuck in status `ordered` for 7–90 days with no matching shipment is now flagged "Ordered, not yet shipped". Detection is split to keep the deterministic and reasoning halves in their right places — a new `list-stuck-candidates.py` selects the aged `ordered` rows and shipment rows (SKILL Step 8), the agent pairs them by the order number written in each subject and returns the unpaired ids (Step 9), and `flag-anomalies.py` flags exactly those `STUCK_IDS` (Step 10). Pairing lives in the agent because matching sender-controlled subject text is reasoning, not scripting. So the confirmation and "on its way" emails of one order collapse — an `ordered` row whose order shipped is not counted as stuck.
