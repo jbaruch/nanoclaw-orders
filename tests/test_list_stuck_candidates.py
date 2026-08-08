@@ -15,7 +15,8 @@ from datetime import date
 FROZEN_TODAY = date(2026, 4, 30)
 
 # Fixed literals relative to FROZEN_TODAY (2026-04-30):
-FIVE_DAYS_AGO = "2026-04-25"  # inside min window (< 7d) — too fresh
+FIVE_DAYS_AGO = "2026-04-25"  # below min window (< 7d) — too fresh
+SEVEN_DAYS_AGO = "2026-04-23"  # exactly at the inclusive min boundary
 FORTY_FIVE_DAYS_AGO = "2026-03-16"  # in window
 HUNDRED_DAYS_AGO = "2026-01-20"  # past max window (> 90d) — aged out
 
@@ -86,6 +87,15 @@ def test_too_fresh_ordered_row_is_not_a_candidate(list_stuck_candidates, monkeyp
     _insert(db_path, id="fresh", email_message_id="m-fresh", order_date=FIVE_DAYS_AGO)
     _code, payload = _run(module, monkeypatch, capsys)
     assert payload["candidates"] == []
+
+
+def test_exactly_min_age_is_a_candidate(list_stuck_candidates, monkeypatch, capsys):
+    # The min boundary is inclusive: an order exactly STUCK_ORDER_MIN_DAYS
+    # old is a candidate (guards the off-by-one at the window edge).
+    module, db_path = list_stuck_candidates
+    _insert(db_path, id="edge", email_message_id="m-edge", order_date=SEVEN_DAYS_AGO)
+    _code, payload = _run(module, monkeypatch, capsys)
+    assert [c["id"] for c in payload["candidates"]] == ["edge"]
 
 
 def test_aged_out_ordered_row_is_not_a_candidate(list_stuck_candidates, monkeypatch, capsys):

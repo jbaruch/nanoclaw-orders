@@ -123,11 +123,11 @@ The exclusion rule table and all matching logic are owned by the script — see 
 
 **Enforcement:** the script's `EXCLUSIONS` table is the runtime-authoritative mirror of the "Do NOT flag these" list in `/workspace/trusted/user_preferences.md`. When that list changes, update `EXCLUSIONS` in the same change.
 
-Stdout: `{"excluded_ids": [...], "excluded_ids_csv": "...", "matched": <int>, "unflagged": <int>}` (ids in ascending `id` order). Pass `excluded_ids_csv` verbatim as Step 8's `EXCLUDED_IDS` — do not recompute or edit the list. (`scripts/unflag-orders.py` remains available for ad-hoc unflagging outside this flow, e.g. user-acknowledged alerts.)
+Stdout: `{"excluded_ids": [...], "excluded_ids_csv": "...", "matched": <int>, "unflagged": <int>}` (ids in ascending `id` order). Pass `excluded_ids_csv` verbatim as Step 10's `EXCLUDED_IDS` — do not recompute or edit the list. (`scripts/unflag-orders.py` remains available for ad-hoc unflagging outside this flow, e.g. user-acknowledged alerts.)
 
 ## Step 7 — Auto-promote stale shipped/ordered orders
 
-Some senders (e.g. Chewy Autoship) never send a delivered email; status stays `shipped` and Step 8's "Overdue delivery" rule keeps firing. Promote stale rows to synthetic terminal `assumed_delivered`:
+Some senders (e.g. Chewy Autoship) never send a delivered email; status stays `shipped` and Step 10's "Overdue delivery" rule keeps firing. Promote stale rows to synthetic terminal `assumed_delivered`:
 
 ```bash
 python3 scripts/promote-stale-shipped.py
@@ -138,7 +138,7 @@ Eligibility (all three must hold):
 - `expected_delivery` non-null AND (ISO date ≥10 days before today, OR malformed/free-text)
 - `last_updated` ≥10 days ago
 
-Stdout: `{"promoted": <int>, "ids": [...]}`. Idempotent. `assumed_delivered` is synthetic terminal — Step 8 never flags it. Future emails still update via Step 5's merge rule.
+Stdout: `{"promoted": <int>, "ids": [...]}`. Idempotent. `assumed_delivered` is synthetic terminal — Step 10 never flags it. Future emails still update via Step 5's merge rule.
 
 ## Step 8 — List stuck-order candidates
 

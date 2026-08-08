@@ -3,9 +3,10 @@
 
 Step 8 of check-orders SKILL.md. This script does the DETERMINISTIC half
 of stuck-order detection (`jbaruch/nanoclaw-orders#55`): it selects the
-`ordered` rows old enough to be candidates — `order_date` strictly more
-than STUCK_ORDER_MIN_DAYS and at most STUCK_ORDER_MAX_DAYS before today —
-and every shipment row (status in shipped/delivered/assumed_delivered).
+`ordered` rows old enough to be candidates — `order_date` at least
+STUCK_ORDER_MIN_DAYS and at most STUCK_ORDER_MAX_DAYS before today (both
+bounds inclusive) — and every shipment row (status in
+shipped/delivered/assumed_delivered).
 
 It does NOT decide which candidates are stuck. Pairing a candidate to a
 shipment means matching an order number written in sender-controlled
@@ -59,7 +60,7 @@ def _aged_candidate(order_date) -> bool:
     except ValueError:
         return False
     delta = (date.today() - parsed).days
-    return STUCK_ORDER_MIN_DAYS < delta <= STUCK_ORDER_MAX_DAYS
+    return STUCK_ORDER_MIN_DAYS <= delta <= STUCK_ORDER_MAX_DAYS
 
 
 def _project(row: sqlite3.Row) -> dict:
