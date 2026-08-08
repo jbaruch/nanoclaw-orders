@@ -140,22 +140,42 @@ Eligibility (all three must hold):
 
 Stdout: `{"promoted": <int>, "ids": [...]}`. Idempotent. `assumed_delivered` is synthetic terminal — Step 8 never flags it. Future emails still update via Step 5's merge rule.
 
-## Step 8 — Apply anomaly flagging
+## Step 8 — List stuck-order candidates
 
-Flag every non-excluded row. Pass the Step 6 id list via `EXCLUDED_IDS`:
+Get the aged `ordered` rows and the shipment rows for stuck-order pairing:
 
 ```bash
-EXCLUDED_IDS="<id1>,<id2>,..." \
+python3 scripts/list-stuck-candidates.py
+```
+
+Stdout: `{"candidates": [{"id": "...", "source": "...", "description": "..."}, ...], "shipments": [{"id": "...", "source": "...", "description": "..."}, ...]}`. `candidates` are `ordered` rows inside the stuck age window; `shipments` are rows whose status proves an order left the ordered stage. The age window and status set are owned by the script (`STUCK_ORDER_MIN_DAYS`/`STUCK_ORDER_MAX_DAYS`, `_SHIPPED_STATUSES`). Descriptions are the sanitized subject fragments already in the table — never raw Gmail. Proceed immediately to Step 9.
+
+## Step 9 — Pair candidates, determine stuck ids
+
+Decide which candidates are genuinely stuck. A candidate is **stuck** unless a `shipments` row is the same logical order — i.e. it names the same order number in its `description`. This pairing reads sender-controlled free text, so it is your reasoning, not a script (`jbaruch/coding-policy: script-delegation`).
+
+- Match by the order number written in the description (e.g. `W1584689498`, `#170910`, `US5848051`). Same order number, same `source` → same order → the candidate shipped → **not** stuck.
+- A candidate whose description carries no discernible order number cannot be paired to a shipment — treat it as stuck (it is aged and there is no evidence it shipped).
+- Collect the `id` of every candidate left unpaired. That set is the Step 10 `STUCK_IDS`.
+
+If `candidates` is empty, `STUCK_IDS` is empty. Proceed immediately to Step 10.
+
+## Step 10 — Apply anomaly flagging
+
+Flag every non-excluded row. Pass the Step 6 id list via `EXCLUDED_IDS` and the Step 9 stuck ids via `STUCK_IDS`:
+
+```bash
+EXCLUDED_IDS="<id1>,<id2>,..." STUCK_IDS="<id3>,<id4>,..." \
   python3 scripts/flag-anomalies.py
 ```
 
-Empty `EXCLUDED_IDS` is fine. Stdout: `{"flagged": <int>, "unflagged": <int>, "ids_flagged": [...], "ids_unflagged": [...]}`.
+Empty `EXCLUDED_IDS` and empty `STUCK_IDS` are both fine. Stdout: `{"flagged": <int>, "unflagged": <int>, "ids_flagged": [...], "ids_unflagged": [...]}`.
 
-Which statuses flag, the stuck-order age window, and the per-status age cutoffs are owned by `scripts/flag-anomalies.py` — its module-docstring rule table and `_classify()` are the single source of truth.
+Which statuses flag and the per-status age cutoffs are owned by `scripts/flag-anomalies.py` — its module-docstring rule table and `_classify()` are the single source of truth. The stuck-order signal is applied from `STUCK_IDS` verbatim; the script never re-derives it.
 
-Flow effects: each matching row gets `flagged=1` plus a `flag_reason`; rows past their cutoff (or that no longer match) are unflagged in the same pass; rows that never matched stay unflagged. The `ids_flagged` list drives the Step 10 report.
+Flow effects: each matching row gets `flagged=1` plus a `flag_reason`; rows past their cutoff (or that no longer match) are unflagged in the same pass; rows that never matched stay unflagged. The `ids_flagged` list drives the Step 12 report.
 
-## Step 9 — Re-stamp orders_metadata (success-path refresh)
+## Step 11 — Re-stamp orders_metadata (success-path refresh)
 
 ```bash
 python3 scripts/write-orders-metadata.py
@@ -163,7 +183,7 @@ python3 scripts/write-orders-metadata.py
 
 Same script as Step 3, re-run on the happy path. Idempotent. Stdout: `{"last_checked": "<iso>", "last_updated": "<iso>"}`.
 
-## Step 10 — Report flagged items
+## Step 12 — Report flagged items
 
 ```bash
 python3 scripts/get-flagged-orders.py | python3 scripts/render-order-alerts.py

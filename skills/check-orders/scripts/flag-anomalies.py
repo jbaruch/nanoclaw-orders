@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Apply Step 8 flagging rules to all non-excluded orders.
+"""Apply Step 10 flagging rules to all non-excluded orders.
 
-Step 8 of check-orders SKILL.md — set `flagged=1` and `flag_reason=...`
+Step 10 of check-orders SKILL.md — set `flagged=1` and `flag_reason=...`
 for orders that match an anomaly rule, AND unflag rows that are past
 their cutoff. Excluded orders (Step 6) must already have been
 unflagged by the time this runs; this pass intentionally does NOT
@@ -10,24 +10,26 @@ whatever is currently in the table.
 
 Anomaly rules. Where a row could match multiple rules (e.g. an
 `ordered` row that is both overdue on a concrete `expected_delivery`
-AND long-stuck), the first match wins per the order below:
+AND supplied as stuck), the first match wins per the order below:
 
   | match                                      | flag_reason                | cutoff              |
   |--------------------------------------------|----------------------------|---------------------|
   | status=cancelled                           | "Order cancelled"          | 14d from order_date |
   | status=refunded                            | "Refund/return"            | 14d from order_date |
   | shipped|ordered, expected_delivery >2d ago | "Overdue delivery"         | 30d from exp_deliv  |
-  | status=ordered, no shipped sibling, aged   | "Ordered, not yet shipped" | 90d from order_date |
+  | status=ordered, id in STUCK_IDS            | "Ordered, not yet shipped" | supplied by caller  |
 
 Stuck-order rule (`jbaruch/nanoclaw-orders#55`): the primary signal the
-owner wants is "placed weeks ago, never shipped". An `ordered` row whose
-`order_date` is between STUCK_ORDER_MIN_DAYS and STUCK_ORDER_MAX_DAYS old,
-with no `shipped`/`delivered`/`assumed_delivered` row for the same logical
-order, is flagged. Logical-order identity is the order number extracted
-from `description` (see `_order_number`); a row with no extractable order
-number stands alone (it cannot be paired with a shipment, so it flags on
-age alone). This is a heuristic pairing — true row-level dedup by order
-number is tracked separately.
+owner wants is "placed weeks ago, never shipped". Deciding which orders
+are stuck needs a candidate row paired against shipment rows by an order
+number written in sender-controlled subject text — that pairing is
+reasoning, not scripting (`jbaruch/coding-policy: script-delegation`, the
+Regex Trap), so it happens in the agent. The deterministic halves live in
+scripts: `list-stuck-candidates.py` (Step 8) selects the aged `ordered`
+rows and shipment rows; the agent pairs them (Step 9) and passes the
+surviving stuck ids here via the STUCK_IDS env var (comma-separated,
+same shape as EXCLUDED_IDS). This script only writes the flag for ids it
+is handed — it never parses a description.
 
 The "Large purchase" rule was removed (`#55`): it flagged self-made
 purchases the owner already knew about (concert tickets, a laptop) with no
@@ -46,29 +48,11 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import sqlite3
 import sys
 from datetime import date
 
 DB_PATH = os.environ.get("ORDERS_DB_PATH", "/workspace/store/messages.db")
-
-# Stuck-order age window (days from order_date). Below MIN, a slow ship is
-# normal and not yet a signal; above MAX, the alert has aged out to keep the
-# channel signal-only (same aging-out philosophy as the other cutoffs).
-STUCK_ORDER_MIN_DAYS = 7
-STUCK_ORDER_MAX_DAYS = 90
-
-# Statuses that prove a logical order left the `ordered` stage. An `ordered`
-# row paired (by order number) with any of these is not stuck.
-_SHIPPED_STATUSES = ("shipped", "delivered", "assumed_delivered")
-
-# An order-number token: up to 4 leading letters then 5+ digits (W1584689498,
-# US5848051, 170910). The 5-digit floor keeps dates (2026), short SKUs (17L),
-# and dollar amounts (512) from being mistaken for order numbers. Descriptions
-# are sender-controlled subject fragments, so this is a best-effort pairing key
-# — see the module docstring on heuristic pairing.
-_ORDER_NUM_RE = re.compile(r"[A-Za-z]{0,4}\d{5,}")
 
 
 def _within_days(value, days: int) -> bool:
@@ -91,20 +75,6 @@ def _within_days(value, days: int) -> bool:
     return 0 <= delta <= days
 
 
-def _older_than_days(value, days: int) -> bool:
-    """True iff value parses as ISO date AND is strictly more than N days ago.
-
-    Same type-guarding rationale as `_within_days`.
-    """
-    if not isinstance(value, str) or not value.strip():
-        return False
-    try:
-        parsed = date.fromisoformat(value.strip()[:10])
-    except ValueError:
-        return False
-    return (date.today() - parsed).days > days
-
-
 def _expected_delivery_overdue(value) -> bool:
     """True iff value parses as ISO date AND is >2 days before today.
 
@@ -123,39 +93,17 @@ def _expected_delivery_within_30_days(value: str | None) -> bool:
     return _within_days(value, 30)
 
 
-def _order_number(description) -> str | None:
-    """Extract an order-number token from a description, or None.
-
-    Type-guards against non-string values (SQLite permissiveness, same
-    rationale as `_within_days`). Returns the first matching token
-    upper-cased so ordered/shipped emails of the same order — which
-    quote the same order number in their subjects — group together.
-    """
-    if not isinstance(description, str):
-        return None
-    match = _ORDER_NUM_RE.search(description)
-    return match.group(0).upper() if match else None
-
-
-def _logical_key(row: dict) -> tuple[str, str] | None:
-    """(source, order_number) identity for a row, or None when no order
-    number is extractable (the row cannot be paired with a shipment)."""
-    number = _order_number(row["description"])
-    if number is None:
-        return None
-    return (row["source"], number)
-
-
-def _classify(row: dict, shipped_keys: set) -> tuple[bool, str | None]:
+def _classify(row: dict, stuck_ids: set) -> tuple[bool, str | None]:
     """Return (should_flag, flag_reason) for a single order row.
 
-    `shipped_keys` is the set of logical-order keys (see `_logical_key`)
-    that have at least one shipped/delivered row — an `ordered` row whose
-    key is in this set has shipped and is not stuck.
+    `stuck_ids` is the set of `ordered`-row ids the agent's Step 9 pairing
+    determined are stuck (aged, with no matching shipment). This script
+    trusts that structured list rather than re-deriving order identity
+    from free text.
 
     Implements the anomaly rules above. First-match-wins in table order:
     a cancellation/refund outranks an overdue signal, and a concrete
-    overdue `expected_delivery` outranks the age-only stuck signal.
+    overdue `expected_delivery` outranks the supplied stuck signal.
     """
     status = row["status"]
     order_date = row["order_date"]
@@ -171,12 +119,7 @@ def _classify(row: dict, shipped_keys: set) -> tuple[bool, str | None]:
         and _expected_delivery_within_30_days(expected_delivery)
     ):
         return True, "Overdue delivery"
-    if (
-        status == "ordered"
-        and _older_than_days(order_date, STUCK_ORDER_MIN_DAYS)
-        and _within_days(order_date, STUCK_ORDER_MAX_DAYS)
-        and _logical_key(row) not in shipped_keys
-    ):
+    if status == "ordered" and row["id"] in stuck_ids:
         return True, "Ordered, not yet shipped"
     return False, None
 
@@ -198,25 +141,19 @@ def main() -> int:
         excluded_ids_raw = os.environ.get("EXCLUDED_IDS", "")
         excluded_ids = {s.strip() for s in excluded_ids_raw.split(",") if s.strip()}
 
-        rows = conn.execute(
-            "SELECT id, status, order_date, expected_delivery, "
-            "source, description, flagged, flag_reason FROM orders"
-        ).fetchall()
+        # Stuck-order ids the agent paired in Step 9 (comma-separated,
+        # same shape as EXCLUDED_IDS). Empty = nothing stuck this pass.
+        stuck_ids_raw = os.environ.get("STUCK_IDS", "")
+        stuck_ids = {s.strip() for s in stuck_ids_raw.split(",") if s.strip()}
 
-        # Precompute logical-order keys that have shipped/delivered. Built
-        # over ALL rows (excluded ones included): an excluded shipment still
-        # proves its `ordered` sibling is not stuck.
-        shipped_keys = set()
-        for row in rows:
-            if row["status"] in _SHIPPED_STATUSES:
-                key = _logical_key(dict(row))
-                if key is not None:
-                    shipped_keys.add(key)
+        rows = conn.execute(
+            "SELECT id, status, order_date, expected_delivery, flagged, flag_reason FROM orders"
+        ).fetchall()
 
         for row in rows:
             if row["id"] in excluded_ids:
                 continue
-            should_flag, reason = _classify(dict(row), shipped_keys)
+            should_flag, reason = _classify(dict(row), stuck_ids)
             current_flagged = bool(row["flagged"])
             if should_flag and (not current_flagged or row["flag_reason"] != reason):
                 conn.execute(

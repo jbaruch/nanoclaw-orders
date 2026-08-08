@@ -5,7 +5,7 @@ Step 6 of check-orders SKILL.md. Owns the exclusion rules end-to-end
 (per `coding-policy: script-delegation`): queries the orders table,
 parses `to_address` with `email.utils.getaddresses`, applies the
 EXCLUSIONS table below, unflags every match in one transaction, and
-emits the excluded id list Step 8 passes to flag-anomalies.py via
+emits the excluded id list Step 10 passes to flag-anomalies.py via
 EXCLUDED_IDS. The agent never re-implements address parsing or
 matching rules in prose.
 

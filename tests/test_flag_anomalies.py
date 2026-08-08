@@ -1,13 +1,17 @@
 """Tests for skills/check-orders/scripts/flag-anomalies.py.
 
-Covers each row of the Step 8 rule table:
+Covers each row of the Step 10 rule table:
 
   | status     | extra condition                       | flag_reason                | cutoff |
   |------------|---------------------------------------|----------------------------|--------|
   | cancelled  | -                                     | "Order cancelled"          | 14d    |
   | refunded   | -                                     | "Refund/return"            | 14d    |
   | shipped|ordered overdue expected_delivery          | "Overdue delivery"         | 30d    |
-  | ordered    | aged, no shipped sibling              | "Ordered, not yet shipped" | 90d    |
+  | ordered    | id supplied in STUCK_IDS              | "Ordered, not yet shipped" | caller |
+
+Stuck-order pairing moved to the agent (`#55`); this script trusts the
+STUCK_IDS the agent supplies. The candidate window lives in
+`list-stuck-candidates.py` (see test_list_stuck_candidates.py).
 
 Plus the unflag-past-cutoff branch, the EXCLUDED_IDS env-var honour, and
 the removal of the old "Large purchase" rule (`#55`).
@@ -29,7 +33,6 @@ TEN_DAYS_AGO = "2026-04-20"
 TWENTY_DAYS_AGO = "2026-04-10"
 FORTY_FIVE_DAYS_AGO = "2026-03-16"
 SEVENTY_DAYS_AGO = "2026-02-19"
-HUNDRED_DAYS_AGO = "2026-01-20"
 
 
 class _FrozenDate(date):
@@ -81,8 +84,9 @@ def _row(db_path, order_id):
         conn.close()
 
 
-def _run(module, monkeypatch, capsys, excluded_ids=""):
+def _run(module, monkeypatch, capsys, excluded_ids="", stuck_ids=""):
     monkeypatch.setenv("EXCLUDED_IDS", excluded_ids)
+    monkeypatch.setenv("STUCK_IDS", stuck_ids)
     monkeypatch.setattr(module, "date", _FrozenDate)
     code = module.main()
     out = capsys.readouterr()
@@ -217,9 +221,9 @@ def test_excluded_ids_env_var_skips_flagging(flag_anomalies, monkeypatch, capsys
     assert _row(db_path, "ex1") == (0, None)
 
 
-def test_flags_stuck_ordered_never_shipped(flag_anomalies, monkeypatch, capsys):
-    # `#55` primary signal: placed weeks ago, still `ordered`, no order
-    # number to pair against a shipment — flag on age alone.
+def test_flags_ordered_supplied_in_stuck_ids(flag_anomalies, monkeypatch, capsys):
+    # `#55` primary signal: the agent (Step 9) paired this aged `ordered`
+    # row and found no shipment, so it arrives here in STUCK_IDS.
     module, db_path = flag_anomalies
     _insert(
         db_path,
@@ -229,82 +233,59 @@ def test_flags_stuck_ordered_never_shipped(flag_anomalies, monkeypatch, capsys):
         description="Stoiq Carry-On 17L",
         order_date=FORTY_FIVE_DAYS_AGO,
     )
-    _run(module, monkeypatch, capsys)
+    _run(module, monkeypatch, capsys, stuck_ids="stuck1")
     assert _row(db_path, "stuck1") == (1, "Ordered, not yet shipped")
 
 
-def test_does_not_flag_recently_ordered(flag_anomalies, monkeypatch, capsys):
-    # Below the min-age window a slow ship is normal, not a signal.
+def test_ordered_not_in_stuck_ids_is_not_flagged(flag_anomalies, monkeypatch, capsys):
+    # An `ordered` row the agent did not mark stuck (paired to a shipment,
+    # or too fresh/old for the candidate window) must not flag.
     module, db_path = flag_anomalies
     _insert(
         db_path,
-        id="fresh1",
-        email_message_id="m-fresh1",
-        status="ordered",
-        description="New thing",
-        order_date=FIVE_DAYS_AGO,
-    )
-    _run(module, monkeypatch, capsys)
-    assert _row(db_path, "fresh1") == (0, None)
-
-
-def test_does_not_flag_stuck_ordered_past_90_days(flag_anomalies, monkeypatch, capsys):
-    # Past the max-age window the stuck alert ages out (channel stays
-    # signal-only), and an existing flag unflags.
-    module, db_path = flag_anomalies
-    _insert(
-        db_path,
-        id="ancient1",
-        email_message_id="m-ancient1",
-        status="ordered",
-        description="Old thing",
-        order_date=HUNDRED_DAYS_AGO,
-        flagged=1,
-        flag_reason="Ordered, not yet shipped",
-    )
-    _run(module, monkeypatch, capsys)
-    assert _row(db_path, "ancient1") == (0, None)
-
-
-def test_ordered_with_shipped_sibling_is_not_stuck(flag_anomalies, monkeypatch, capsys):
-    # `#55` dedup: the confirmation and "on its way" emails of one order
-    # share an order number (W1584689498). The aged `ordered` row is not
-    # stuck because a shipped row for the same logical order exists.
-    module, db_path = flag_anomalies
-    _insert(
-        db_path,
-        id="pair-ord",
-        email_message_id="m-pair-ord",
+        id="ord1",
+        email_message_id="m-ord1",
         status="ordered",
         description="your order W1584689498",
         order_date=FORTY_FIVE_DAYS_AGO,
     )
-    _insert(
-        db_path,
-        id="pair-ship",
-        email_message_id="m-pair-ship",
-        status="shipped",
-        description="your order W1584689498 is on the way",
-        order_date=FORTY_FIVE_DAYS_AGO,
-    )
-    _run(module, monkeypatch, capsys)
-    assert _row(db_path, "pair-ord") == (0, None)
-    assert _row(db_path, "pair-ship") == (0, None)
+    _run(module, monkeypatch, capsys, stuck_ids="")
+    assert _row(db_path, "ord1") == (0, None)
 
 
-def test_ordered_with_order_number_but_no_sibling_is_stuck(flag_anomalies, monkeypatch, capsys):
-    # An order number that never gets a shipment row still flags.
+def test_unflags_previously_stuck_not_in_stuck_ids(flag_anomalies, monkeypatch, capsys):
+    # A row flagged stuck last pass that the agent no longer lists (it
+    # shipped, or aged out of the candidate window) unflags.
     module, db_path = flag_anomalies
     _insert(
         db_path,
-        id="lone",
-        email_message_id="m-lone",
+        id="stuck2",
+        email_message_id="m-stuck2",
+        status="ordered",
+        description="Old thing",
+        order_date=FORTY_FIVE_DAYS_AGO,
+        flagged=1,
+        flag_reason="Ordered, not yet shipped",
+    )
+    _run(module, monkeypatch, capsys, stuck_ids="")
+    assert _row(db_path, "stuck2") == (0, None)
+
+
+def test_overdue_delivery_outranks_supplied_stuck(flag_anomalies, monkeypatch, capsys):
+    # An `ordered` row with a concrete overdue expected_delivery keeps the
+    # more specific "Overdue delivery" reason even when supplied as stuck.
+    module, db_path = flag_anomalies
+    _insert(
+        db_path,
+        id="both",
+        email_message_id="m-both",
         status="ordered",
         description="Ragnar Armoury #140898",
         order_date=FORTY_FIVE_DAYS_AGO,
+        expected_delivery=TEN_DAYS_AGO,
     )
-    _run(module, monkeypatch, capsys)
-    assert _row(db_path, "lone") == (1, "Ordered, not yet shipped")
+    _run(module, monkeypatch, capsys, stuck_ids="both")
+    assert _row(db_path, "both") == (1, "Overdue delivery")
 
 
 def test_status_unknown_does_not_flag(flag_anomalies, monkeypatch, capsys):
