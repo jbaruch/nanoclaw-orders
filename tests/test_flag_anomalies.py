@@ -2,15 +2,15 @@
 
 Covers each row of the Step 8 rule table:
 
-  | status     | extra condition         | flag_reason             | cutoff |
-  |------------|-------------------------|-------------------------|--------|
-  | cancelled  | -                       | "Order cancelled"       | 14d    |
-  | refunded   | -                       | "Refund/return"         | 14d    |
-  | non-delivered amount>200                | "Large purchase: $X.YY" | none   |
-  | delivered, amount>200                   | "Large purchase: $X.YY" | 14d    |
-  | shipped|ordered overdue expected_delivery               | "Overdue delivery"      | 30d    |
+  | status     | extra condition                       | flag_reason                | cutoff |
+  |------------|---------------------------------------|----------------------------|--------|
+  | cancelled  | -                                     | "Order cancelled"          | 14d    |
+  | refunded   | -                                     | "Refund/return"            | 14d    |
+  | shipped|ordered overdue expected_delivery          | "Overdue delivery"         | 30d    |
+  | ordered    | aged, no shipped sibling              | "Ordered, not yet shipped" | 90d    |
 
-Plus the unflag-past-cutoff branch and the EXCLUDED_IDS env-var honour.
+Plus the unflag-past-cutoff branch, the EXCLUDED_IDS env-var honour, and
+the removal of the old "Large purchase" rule (`#55`).
 
 Tests freeze `module.date` to a fixed-today subclass (same pattern as
 test_within_days.py) so every fixture date is a fixed literal relative
@@ -24,11 +24,12 @@ from datetime import date
 FROZEN_TODAY = date(2026, 4, 30)
 
 # Fixed literals relative to FROZEN_TODAY (2026-04-30):
+FIVE_DAYS_AGO = "2026-04-25"
 TEN_DAYS_AGO = "2026-04-20"
 TWENTY_DAYS_AGO = "2026-04-10"
 FORTY_FIVE_DAYS_AGO = "2026-03-16"
 SEVENTY_DAYS_AGO = "2026-02-19"
-TWO_HUNDRED_DAYS_AGO = "2025-10-12"
+HUNDRED_DAYS_AGO = "2026-01-20"
 
 
 class _FrozenDate(date):
@@ -141,30 +142,32 @@ def test_unflags_refunded_past_14_days(flag_anomalies, monkeypatch, capsys):
     assert _row(db_path, "r2") == (0, None)
 
 
-def test_flags_large_non_delivered_purchase_with_no_cutoff(flag_anomalies, monkeypatch, capsys):
+def test_large_purchase_rule_removed_does_not_flag(flag_anomalies, monkeypatch, capsys):
+    # `#55`: a large self-made purchase is no longer an anomaly. A shipped
+    # row over the old $200 threshold, with no overdue date, must not flag.
     module, db_path = flag_anomalies
     _insert(
         db_path,
         id="lp1",
         email_message_id="m-lp1",
         status="shipped",
-        order_date=TWO_HUNDRED_DAYS_AGO,
-        amount=499.99,
+        order_date=TEN_DAYS_AGO,
+        amount=1517.33,
     )
     _run(module, monkeypatch, capsys)
-    flagged, reason = _row(db_path, "lp1")
-    assert flagged == 1
-    assert reason == "Large purchase: $499.99"
+    assert _row(db_path, "lp1") == (0, None)
 
 
-def test_unflags_large_delivered_purchase_past_14_days(flag_anomalies, monkeypatch, capsys):
+def test_existing_large_purchase_flag_is_cleared(flag_anomalies, monkeypatch, capsys):
+    # `#55`: rows carrying a legacy "Large purchase" reason unflag on the
+    # next pass now that the rule is gone.
     module, db_path = flag_anomalies
     _insert(
         db_path,
         id="lp2",
         email_message_id="m-lp2",
         status="delivered",
-        order_date=TWENTY_DAYS_AGO,
+        order_date=FIVE_DAYS_AGO,
         amount=300.0,
         flagged=1,
         flag_reason="Large purchase: $300.00",
@@ -212,6 +215,96 @@ def test_excluded_ids_env_var_skips_flagging(flag_anomalies, monkeypatch, capsys
     # Without exclusion: would flag.
     _run(module, monkeypatch, capsys, excluded_ids="ex1")
     assert _row(db_path, "ex1") == (0, None)
+
+
+def test_flags_stuck_ordered_never_shipped(flag_anomalies, monkeypatch, capsys):
+    # `#55` primary signal: placed weeks ago, still `ordered`, no order
+    # number to pair against a shipment — flag on age alone.
+    module, db_path = flag_anomalies
+    _insert(
+        db_path,
+        id="stuck1",
+        email_message_id="m-stuck1",
+        status="ordered",
+        description="Stoiq Carry-On 17L",
+        order_date=FORTY_FIVE_DAYS_AGO,
+    )
+    _run(module, monkeypatch, capsys)
+    assert _row(db_path, "stuck1") == (1, "Ordered, not yet shipped")
+
+
+def test_does_not_flag_recently_ordered(flag_anomalies, monkeypatch, capsys):
+    # Below the min-age window a slow ship is normal, not a signal.
+    module, db_path = flag_anomalies
+    _insert(
+        db_path,
+        id="fresh1",
+        email_message_id="m-fresh1",
+        status="ordered",
+        description="New thing",
+        order_date=FIVE_DAYS_AGO,
+    )
+    _run(module, monkeypatch, capsys)
+    assert _row(db_path, "fresh1") == (0, None)
+
+
+def test_does_not_flag_stuck_ordered_past_90_days(flag_anomalies, monkeypatch, capsys):
+    # Past the max-age window the stuck alert ages out (channel stays
+    # signal-only), and an existing flag unflags.
+    module, db_path = flag_anomalies
+    _insert(
+        db_path,
+        id="ancient1",
+        email_message_id="m-ancient1",
+        status="ordered",
+        description="Old thing",
+        order_date=HUNDRED_DAYS_AGO,
+        flagged=1,
+        flag_reason="Ordered, not yet shipped",
+    )
+    _run(module, monkeypatch, capsys)
+    assert _row(db_path, "ancient1") == (0, None)
+
+
+def test_ordered_with_shipped_sibling_is_not_stuck(flag_anomalies, monkeypatch, capsys):
+    # `#55` dedup: the confirmation and "on its way" emails of one order
+    # share an order number (W1584689498). The aged `ordered` row is not
+    # stuck because a shipped row for the same logical order exists.
+    module, db_path = flag_anomalies
+    _insert(
+        db_path,
+        id="pair-ord",
+        email_message_id="m-pair-ord",
+        status="ordered",
+        description="your order W1584689498",
+        order_date=FORTY_FIVE_DAYS_AGO,
+    )
+    _insert(
+        db_path,
+        id="pair-ship",
+        email_message_id="m-pair-ship",
+        status="shipped",
+        description="your order W1584689498 is on the way",
+        order_date=FORTY_FIVE_DAYS_AGO,
+    )
+    _run(module, monkeypatch, capsys)
+    assert _row(db_path, "pair-ord") == (0, None)
+    assert _row(db_path, "pair-ship") == (0, None)
+
+
+def test_ordered_with_order_number_but_no_sibling_is_stuck(flag_anomalies, monkeypatch, capsys):
+    # An order number that never gets a shipment row still flags.
+    module, db_path = flag_anomalies
+    _insert(
+        db_path,
+        id="lone",
+        email_message_id="m-lone",
+        status="ordered",
+        description="Ragnar Armoury #140898",
+        order_date=FORTY_FIVE_DAYS_AGO,
+    )
+    _run(module, monkeypatch, capsys)
+    assert _row(db_path, "lone") == (1, "Ordered, not yet shipped")
 
 
 def test_status_unknown_does_not_flag(flag_anomalies, monkeypatch, capsys):

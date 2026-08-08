@@ -1,6 +1,6 @@
 ---
 name: check-orders
-description: Fetches order-related emails from Gmail, updates the orders SQLite table, and flags recent anomalies — cancellations/refunds, large purchases until delivered, and overdue deliveries (statuses, dollar threshold, and age cutoffs owned by flag-anomalies.py). Silent on normal order flow; older flagged events age out automatically to keep the alert channel signal-only. Use when the user asks about order status, order tracking, order emails, shipment status, purchase alerts, or needs to sync Gmail order data with the orders database.
+description: Fetches order-related emails from Gmail, updates the orders SQLite table, and flags recent anomalies — cancellations/refunds, overdue deliveries, and orders stuck in 'ordered' that never shipped (statuses and age cutoffs owned by flag-anomalies.py). Silent on normal order flow; older flagged events age out automatically to keep the alert channel signal-only. Use when the user asks about order status, order tracking, order emails, shipment status, purchase alerts, or needs to sync Gmail order data with the orders database.
 ---
 
 # Check Orders
@@ -151,7 +151,7 @@ EXCLUDED_IDS="<id1>,<id2>,..." \
 
 Empty `EXCLUDED_IDS` is fine. Stdout: `{"flagged": <int>, "unflagged": <int>, "ids_flagged": [...], "ids_unflagged": [...]}`.
 
-Which statuses flag, the large-purchase dollar threshold, and the per-status age cutoffs are owned by `scripts/flag-anomalies.py` — its module-docstring rule table and `_classify()` are the single source of truth.
+Which statuses flag, the stuck-order age window, and the per-status age cutoffs are owned by `scripts/flag-anomalies.py` — its module-docstring rule table and `_classify()` are the single source of truth.
 
 Flow effects: each matching row gets `flagged=1` plus a `flag_reason`; rows past their cutoff (or that no longer match) are unflagged in the same pass; rows that never matched stay unflagged. The `ids_flagged` list drives the Step 10 report.
 

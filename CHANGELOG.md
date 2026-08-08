@@ -2,6 +2,14 @@
 
 All notable changes to this tile are documented here.
 
+### Fixed — `check-orders` flags stuck orders and drops large-purchase noise
+
+`flag-anomalies.py` gained the primary signal the owner actually wants surfaced (`jbaruch/nanoclaw-orders#55`): an order stuck in status `ordered` for 7–90 days with no matching shipment is now flagged "Ordered, not yet shipped". Shipment pairing is by an order number extracted from the description, so the confirmation and "on its way" emails of one order (which quote the same order number) collapse — an `ordered` row whose order shipped is not counted as stuck.
+
+Removed the "Large purchase" rule. It flagged purchases the owner made himself and already knew about (concert tickets, a laptop) with no action attached, and it was why one logical order surfaced twice in a brief — both the confirmation and the shipment row cleared the old $200 threshold. Rows carrying a legacy `Large purchase: $...` reason unflag on the next pass.
+
+Deeper follow-ups from the same issue are tracked separately: true row-level dedup by order number, merchant capture, and rejecting non-date `expected_delivery` values at ingestion.
+
 ## 0.1.33 — 2026-08-05
 
 ### Removed — `tests/test_changelog_sync.py`, a guard with no consumer

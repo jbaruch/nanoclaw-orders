@@ -8,19 +8,33 @@ unflagged by the time this runs; this pass intentionally does NOT
 look at exclusion rules — it just applies the anomaly conditions to
 whatever is currently in the table.
 
-Anomaly rules. Where a row could match multiple rules (e.g. a
-`shipped` row with `amount > 200` AND an overdue `expected_delivery`),
-the first match wins per the order below — the large-purchase rule
-takes precedence over the overdue-delivery rule because the dollar
-amount is the more user-actionable signal:
+Anomaly rules. Where a row could match multiple rules (e.g. an
+`ordered` row that is both overdue on a concrete `expected_delivery`
+AND long-stuck), the first match wins per the order below:
 
-  | match                                      | flag_reason             | cutoff                |
-  |--------------------------------------------|-------------------------|-----------------------|
-  | status=cancelled                           | "Order cancelled"       | 14d from order_date   |
-  | status=refunded                            | "Refund/return"         | 14d from order_date   |
-  | non-delivered, amount>200                  | "Large purchase: $X.YY" | none                  |
-  | delivered, amount>200                      | "Large purchase: $X.YY" | 14d from order_date   |
-  | shipped|ordered, expected_delivery >2d ago | "Overdue delivery"      | 30d from exp_delivery |
+  | match                                      | flag_reason                | cutoff              |
+  |--------------------------------------------|----------------------------|---------------------|
+  | status=cancelled                           | "Order cancelled"          | 14d from order_date |
+  | status=refunded                            | "Refund/return"            | 14d from order_date |
+  | shipped|ordered, expected_delivery >2d ago | "Overdue delivery"         | 30d from exp_deliv  |
+  | status=ordered, no shipped sibling, aged   | "Ordered, not yet shipped" | 90d from order_date |
+
+Stuck-order rule (`jbaruch/nanoclaw-orders#55`): the primary signal the
+owner wants is "placed weeks ago, never shipped". An `ordered` row whose
+`order_date` is between STUCK_ORDER_MIN_DAYS and STUCK_ORDER_MAX_DAYS old,
+with no `shipped`/`delivered`/`assumed_delivered` row for the same logical
+order, is flagged. Logical-order identity is the order number extracted
+from `description` (see `_order_number`); a row with no extractable order
+number stands alone (it cannot be paired with a shipment, so it flags on
+age alone). This is a heuristic pairing — true row-level dedup by order
+number is tracked separately.
+
+The "Large purchase" rule was removed (`#55`): it flagged self-made
+purchases the owner already knew about (concert tickets, a laptop) with no
+action attached, and it was the reason one logical order surfaced twice —
+once per email — since both the confirmation and the shipment row cleared
+the dollar threshold. Rows previously carrying a `Large purchase: $...`
+reason are unflagged by the past-cutoff branch on the next pass.
 
 Stdout on success: a single JSON object summarising the pass:
     {"flagged": <int>, "unflagged": <int>, "ids_flagged": [...], "ids_unflagged": [...]}
@@ -32,12 +46,29 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import sys
 from datetime import date
 
 DB_PATH = os.environ.get("ORDERS_DB_PATH", "/workspace/store/messages.db")
-LARGE_PURCHASE_THRESHOLD = 200.0
+
+# Stuck-order age window (days from order_date). Below MIN, a slow ship is
+# normal and not yet a signal; above MAX, the alert has aged out to keep the
+# channel signal-only (same aging-out philosophy as the other cutoffs).
+STUCK_ORDER_MIN_DAYS = 7
+STUCK_ORDER_MAX_DAYS = 90
+
+# Statuses that prove a logical order left the `ordered` stage. An `ordered`
+# row paired (by order number) with any of these is not stuck.
+_SHIPPED_STATUSES = ("shipped", "delivered", "assumed_delivered")
+
+# An order-number token: up to 4 leading letters then 5+ digits (W1584689498,
+# US5848051, 170910). The 5-digit floor keeps dates (2026), short SKUs (17L),
+# and dollar amounts (512) from being mistaken for order numbers. Descriptions
+# are sender-controlled subject fragments, so this is a best-effort pairing key
+# — see the module docstring on heuristic pairing.
+_ORDER_NUM_RE = re.compile(r"[A-Za-z]{0,4}\d{5,}")
 
 
 def _within_days(value, days: int) -> bool:
@@ -60,6 +91,20 @@ def _within_days(value, days: int) -> bool:
     return 0 <= delta <= days
 
 
+def _older_than_days(value, days: int) -> bool:
+    """True iff value parses as ISO date AND is strictly more than N days ago.
+
+    Same type-guarding rationale as `_within_days`.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return False
+    try:
+        parsed = date.fromisoformat(value.strip()[:10])
+    except ValueError:
+        return False
+    return (date.today() - parsed).days > days
+
+
 def _expected_delivery_overdue(value) -> bool:
     """True iff value parses as ISO date AND is >2 days before today.
 
@@ -78,17 +123,41 @@ def _expected_delivery_within_30_days(value: str | None) -> bool:
     return _within_days(value, 30)
 
 
-def _classify(row: dict) -> tuple[bool, str | None]:
+def _order_number(description) -> str | None:
+    """Extract an order-number token from a description, or None.
+
+    Type-guards against non-string values (SQLite permissiveness, same
+    rationale as `_within_days`). Returns the first matching token
+    upper-cased so ordered/shipped emails of the same order — which
+    quote the same order number in their subjects — group together.
+    """
+    if not isinstance(description, str):
+        return None
+    match = _ORDER_NUM_RE.search(description)
+    return match.group(0).upper() if match else None
+
+
+def _logical_key(row: dict) -> tuple[str, str] | None:
+    """(source, order_number) identity for a row, or None when no order
+    number is extractable (the row cannot be paired with a shipment)."""
+    number = _order_number(row["description"])
+    if number is None:
+        return None
+    return (row["source"], number)
+
+
+def _classify(row: dict, shipped_keys: set) -> tuple[bool, str | None]:
     """Return (should_flag, flag_reason) for a single order row.
 
-    Implements the anomaly rules above. Order matters when multiple
-    rules can match the same row (e.g. shipped + amount > 200 + overdue
-    expected_delivery). First-match-wins: the dollar-amount rule is
-    listed before the overdue rule because the user-actionable signal
-    is "money tied up" rather than "delivery is late".
+    `shipped_keys` is the set of logical-order keys (see `_logical_key`)
+    that have at least one shipped/delivered row — an `ordered` row whose
+    key is in this set has shipped and is not stuck.
+
+    Implements the anomaly rules above. First-match-wins in table order:
+    a cancellation/refund outranks an overdue signal, and a concrete
+    overdue `expected_delivery` outranks the age-only stuck signal.
     """
     status = row["status"]
-    amount = row["amount"]
     order_date = row["order_date"]
     expected_delivery = row["expected_delivery"]
 
@@ -96,35 +165,19 @@ def _classify(row: dict) -> tuple[bool, str | None]:
         return True, "Order cancelled"
     if status == "refunded" and _within_days(order_date, 14):
         return True, "Refund/return"
-    # `amount` lands here as whatever `sqlite3.Row` returns from the
-    # REAL column, which in practice is `None` or a number — but
-    # SQLite is type-permissive (a string snuck into a REAL column on
-    # a hand-edited row would surface here too) and Python would
-    # raise TypeError on `amount > 200` if it's not numeric. Narrow
-    # to int/float (excluding bool, which is technically int) before
-    # comparing; anything else logs and skips this rule for the row.
-    if (
-        amount is not None
-        and isinstance(amount, (int, float))
-        and not isinstance(amount, bool)
-        and amount > LARGE_PURCHASE_THRESHOLD
-    ):
-        if status != "delivered":
-            return True, f"Large purchase: ${amount:.2f}"
-        if status == "delivered" and _within_days(order_date, 14):
-            return True, f"Large purchase: ${amount:.2f}"
-    elif amount is not None and not isinstance(amount, (int, float)):
-        sys.stderr.write(
-            f"flag-anomalies: order {row['id']} has non-numeric "
-            f"amount={amount!r}; skipping the large-purchase rule for "
-            f"this row\n"
-        )
     if (
         status in ("shipped", "ordered")
         and _expected_delivery_overdue(expected_delivery)
         and _expected_delivery_within_30_days(expected_delivery)
     ):
         return True, "Overdue delivery"
+    if (
+        status == "ordered"
+        and _older_than_days(order_date, STUCK_ORDER_MIN_DAYS)
+        and _within_days(order_date, STUCK_ORDER_MAX_DAYS)
+        and _logical_key(row) not in shipped_keys
+    ):
+        return True, "Ordered, not yet shipped"
     return False, None
 
 
@@ -146,13 +199,24 @@ def main() -> int:
         excluded_ids = {s.strip() for s in excluded_ids_raw.split(",") if s.strip()}
 
         rows = conn.execute(
-            "SELECT id, status, amount, order_date, expected_delivery, "
-            "flagged, flag_reason FROM orders"
+            "SELECT id, status, order_date, expected_delivery, "
+            "source, description, flagged, flag_reason FROM orders"
         ).fetchall()
+
+        # Precompute logical-order keys that have shipped/delivered. Built
+        # over ALL rows (excluded ones included): an excluded shipment still
+        # proves its `ordered` sibling is not stuck.
+        shipped_keys = set()
+        for row in rows:
+            if row["status"] in _SHIPPED_STATUSES:
+                key = _logical_key(dict(row))
+                if key is not None:
+                    shipped_keys.add(key)
+
         for row in rows:
             if row["id"] in excluded_ids:
                 continue
-            should_flag, reason = _classify(dict(row))
+            should_flag, reason = _classify(dict(row), shipped_keys)
             current_flagged = bool(row["flagged"])
             if should_flag and (not current_flagged or row["flag_reason"] != reason):
                 conn.execute(
