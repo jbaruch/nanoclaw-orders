@@ -32,7 +32,7 @@ import json
 import os
 import sqlite3
 import sys
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 
 DB_PATH = os.environ.get("ORDERS_DB_PATH", "/workspace/store/messages.db")
 
@@ -51,27 +51,28 @@ def _now_iso() -> str:
 
 
 def _normalize_expected_delivery(value, order_id: str):
-    """Return a stored `expected_delivery`: an ISO date, or None.
+    """Return a canonical `YYYY-MM-DD` `expected_delivery`, or None.
 
     The agent parses `expected_delivery` from free-text subjects in Step 4,
     which lets scraped non-dates ("today", "March", "overnight") through
-    (`jbaruch/nanoclaw-orders#55`). Only a value that parses as an ISO date
-    (first 10 chars, mirroring the flag-anomalies date guards) is stored;
-    anything else is dropped to NULL so it never feeds the overdue check.
-    None passes through unchanged (no expected delivery was mentioned).
+    (`jbaruch/nanoclaw-orders#55`). The stored contract is a canonical
+    calendar date: the ENTIRE stripped value must match `YYYY-MM-DD`, and
+    the canonical (zero-padded) form is what gets stored. Timestamps,
+    trailing garbage ("2026-04-05junk"), compact ("20260405"), and free
+    text are all off-contract and dropped to NULL so they never feed the
+    overdue check. None passes through unchanged (no delivery mentioned).
     """
     if value is None:
         return None
     if isinstance(value, str) and value.strip():
         try:
-            date.fromisoformat(value.strip()[:10])
-            return value
+            return datetime.strptime(value.strip(), "%Y-%m-%d").date().isoformat()
         except ValueError:
             pass
     sys.stderr.write(
         f"apply-order.py: dropping non-date expected_delivery={value!r} for "
-        f"order {order_id} — only ISO-8601 dates are stored so the overdue "
-        f"check never keys off scraped free text\n"
+        f"order {order_id} — only a canonical YYYY-MM-DD date is stored so "
+        f"the overdue check never keys off scraped free text\n"
     )
     return None
 

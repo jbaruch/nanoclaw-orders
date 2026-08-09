@@ -155,11 +155,21 @@ def test_valid_iso_expected_delivery_is_stored(apply_order, monkeypatch, capsys)
     assert _select_expected_delivery(db_path, "msg-aaa") == "2026-04-05"
 
 
-def test_non_date_expected_delivery_is_dropped_to_null(apply_order, monkeypatch, capsys):
-    # `#55`: scraped free text ("today", "March", "overnight") must not be
-    # stored — it would otherwise feed the overdue check as garbage.
+def test_non_canonical_expected_delivery_is_dropped_to_null(apply_order, monkeypatch, capsys):
+    # `#55`: only a canonical YYYY-MM-DD reaches the column. Scraped free
+    # text, timestamps, trailing garbage, and compact dates are all
+    # off-contract — they would otherwise feed the overdue check as garbage.
     module, db_path = apply_order
-    for i, junk in enumerate(("today", "March", "overnight", "tomorrow")):
+    off_contract = (
+        "today",
+        "March",
+        "overnight",
+        "tomorrow",
+        "2026-04-05T00:00:00Z",  # timestamp
+        "2026-04-05junk",  # trailing garbage
+        "20260405",  # compact, no dashes
+    )
+    for i, junk in enumerate(off_contract):
         payload = _base_order()
         payload["id"] = f"amazon-2026-04-01-junk{i:04d}"
         payload["email_message_id"] = f"msg-junk-{i}"
@@ -168,6 +178,16 @@ def test_non_date_expected_delivery_is_dropped_to_null(apply_order, monkeypatch,
         assert code == 0
         assert _select_expected_delivery(db_path, f"msg-junk-{i}") is None
         assert "dropping non-date expected_delivery" in err
+
+
+def test_non_canonical_date_is_canonicalized(apply_order, monkeypatch, capsys):
+    # A dashed but non-zero-padded date is valid; it is stored zero-padded.
+    module, db_path = apply_order
+    payload = _base_order()
+    payload["expected_delivery"] = "2026-4-5"
+    code, _out, _err = _run(module, monkeypatch, capsys, payload)
+    assert code == 0
+    assert _select_expected_delivery(db_path, "msg-aaa") == "2026-04-05"
 
 
 def test_absent_expected_delivery_stays_null(apply_order, monkeypatch, capsys):
@@ -180,11 +200,12 @@ def test_absent_expected_delivery_stays_null(apply_order, monkeypatch, capsys):
     assert "dropping non-date" not in err
 
 
-def test_datetime_prefixed_expected_delivery_is_stored(apply_order, monkeypatch, capsys):
-    # A full ISO timestamp parses on its first 10 chars and is kept verbatim.
+def test_whitespace_padded_canonical_date_is_stored(apply_order, monkeypatch, capsys):
+    # Surrounding whitespace is stripped before validation; the canonical
+    # date is stored.
     module, db_path = apply_order
     payload = _base_order()
-    payload["expected_delivery"] = "2026-04-05T00:00:00Z"
+    payload["expected_delivery"] = "  2026-04-05  "
     code, _out, _err = _run(module, monkeypatch, capsys, payload)
     assert code == 0
-    assert _select_expected_delivery(db_path, "msg-aaa") == "2026-04-05T00:00:00Z"
+    assert _select_expected_delivery(db_path, "msg-aaa") == "2026-04-05"

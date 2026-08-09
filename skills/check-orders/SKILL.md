@@ -82,7 +82,7 @@ Stdout: `{"source": "amazon" | "shopify" | "shop" | "other", "status": "shipped"
 | `currency` | `"USD"` |
 | `description` | Subject stripped of boilerplate (e.g. remove "Your Amazon.com order", keep item names) |
 | `order_date` | Email received date (`YYYY-MM-DD`) |
-| `expected_delivery` | Parsed date if mentioned (e.g. "arrives by Dec 5"); `null` otherwise. Emit an ISO date (`YYYY-MM-DD`) or `null` — never a scraped word like "today"/"March". `apply-order.py` drops any non-ISO value to `null` at write time as a backstop (`jbaruch/nanoclaw-orders#55`). |
+| `expected_delivery` | Parsed date if mentioned (e.g. "arrives by Dec 5"); `null` otherwise. Emit a canonical `YYYY-MM-DD` date or `null` — never a scraped word ("today"/"March"), a timestamp, or a compact date. `apply-order.py` is the backstop: any value whose whole stripped form is not `YYYY-MM-DD` is dropped to `null` at write time (`jbaruch/nanoclaw-orders#55`). |
 | `email_message_id` | Gmail message ID |
 | `to_address` | The `To:` header (used by Step 6 exclusions) |
 
