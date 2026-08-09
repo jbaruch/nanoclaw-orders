@@ -2,6 +2,10 @@
 
 All notable changes to this tile are documented here.
 
+### Fixed — `apply-order.py` drops non-date `expected_delivery` at write time
+
+The agent parses `expected_delivery` from free-text subjects, which let scraped non-dates ("today", "March", "overnight") land in the column (`jbaruch/nanoclaw-orders#55`, follow-up). `apply-order.py` now stores only a value that parses as an ISO date; anything else is dropped to `NULL` with a stderr note, so the overdue-delivery check never keys off garbage. A `null` or absent value passes through unchanged.
+
 ## 0.1.34 — 2026-08-08
 
 ### Fixed — `check-orders` flags stuck orders and drops large-purchase noise
