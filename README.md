@@ -10,7 +10,7 @@ Per-chat overlay tile. Install via NanoClaw's `containerConfig.additionalTiles` 
 
 1. **Order-email fetch** — native Gmail multi-query fetch over the Gmail REST API, brokered by the OneCLI gateway, cursor-bounded by `last_checked`, sanitized inside the container before any body reaches the session
 2. **Order table maintenance** — upserts each order on `email_message_id` into the `orders` table; idempotent across overlapping fetch windows
-3. **Anomaly flagging** — flags cancellations/refunds, large purchases until delivered, and overdue deliveries (statuses, dollar threshold, and age cutoffs owned by `flag-anomalies.py`)
+3. **Anomaly flagging** — flags cancellations/refunds, overdue deliveries, and orders stuck in `ordered` that never shipped (statuses and per-status cutoffs owned by `flag-anomalies.py`; the stuck window and `(source, order_number)` pairing owned by `compute-stuck-orders.py`)
 4. **Signal-only alerts** — silent on normal order flow; older flagged events age out automatically
 5. **Scheduled refresh** — the `nightly-order-sync` cadence wrapper runs the lookup on a 3-day-capped `15 6` cadence and emits the observable-silence cursor marker the silent-success watchdog reads
 
@@ -73,9 +73,10 @@ All four resolve when admin co-loads with this overlay (the owner's main/trusted
 - `scripts/extract-amount.py` — extracts the order total from a sanitized email, preferring a labeled total line over any largest-amount pick
 - `scripts/classify-order.py` — maps sender domain → `source` and subject/snippet keywords → `status`
 - `scripts/apply-order.py` — upserts an order row on `email_message_id`
-- `scripts/apply-exclusions.py` — owns the user-preference exclusion table and matching; unflags matches and emits the id list Step 8 consumes via `EXCLUDED_IDS`
-- `scripts/flag-anomalies.py` — applies the anomaly predicates (owns the statuses, dollar threshold, age cutoffs)
-- `scripts/get-flagged-orders.py` — returns currently-flagged orders for the alert channel
+- `scripts/apply-exclusions.py` — owns the user-preference exclusion table and matching; unflags matches and emits the id list flagging consumes via `EXCLUDED_IDS`
+- `scripts/compute-stuck-orders.py` — computes the ids of orders stuck in `ordered` with no shipment, pairing on the persisted `(source, order_number)` key
+- `scripts/flag-anomalies.py` — applies the anomaly predicates (owns the statuses and per-status age cutoffs); flags the supplied stuck ids
+- `scripts/get-flagged-orders.py` — returns currently-flagged orders for the alert channel, collapsing rows that share a `(source, order_number)` order
 - `scripts/render-order-alerts.py` — HTML-escapes flagged rows into the ready-to-send Telegram alert envelope
 - `scripts/unflag-orders.py` — clears flags the user has acknowledged (ad-hoc, outside the Step 6 flow)
 - `scripts/promote-stale-shipped.py` — ages shipped orders past the delivery window into the overdue state

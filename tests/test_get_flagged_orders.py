@@ -24,6 +24,7 @@ def _insert(db_path, **fields):
         "flag_reason": None,
         "last_updated": "2026-04-01T00:00:00Z",
         "merchant": None,
+        "order_number": None,
     }
     defaults.update(fields)
     conn = sqlite3.connect(str(db_path))
@@ -31,8 +32,8 @@ def _insert(db_path, **fields):
         conn.execute(
             "INSERT INTO orders (id, source, status, amount, currency, description, "
             "order_date, expected_delivery, email_message_id, to_address, flagged, "
-            "flag_reason, last_updated, merchant) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "flag_reason, last_updated, merchant, order_number) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             tuple(defaults.values()),
         )
         conn.commit()
@@ -96,6 +97,67 @@ def test_surfaces_captured_merchant(get_flagged_orders, capsys):
     code, out, _err = _run(module, capsys)
     assert code == 0
     assert json.loads(out)[0]["merchant"] == "Ragnar"
+
+
+def test_collapses_rows_sharing_source_and_order_number(get_flagged_orders, capsys):
+    # `#55`: the confirmation and shipment rows of one order (same source +
+    # order_number) collapse to one alert line — the most recent by
+    # order_date. order_number itself is not in the output shape.
+    module, db_path = get_flagged_orders
+    _insert(
+        db_path,
+        id="conf",
+        email_message_id="m-conf",
+        flagged=1,
+        flag_reason="Ordered, not yet shipped",
+        description="your order W1584689498",
+        source="amazon",
+        order_number="W1584689498",
+        order_date="2026-04-10",
+    )
+    _insert(
+        db_path,
+        id="ship",
+        email_message_id="m-ship",
+        flagged=1,
+        flag_reason="Overdue delivery",
+        description="your order W1584689498 is on the way",
+        source="amazon",
+        order_number="W1584689498",
+        order_date="2026-04-20",
+    )
+    code, out, _err = _run(module, capsys)
+    assert code == 0
+    rows = json.loads(out)
+    assert len(rows) == 1
+    assert rows[0]["order_date"] == "2026-04-20"  # most recent representative
+    assert "order_number" not in rows[0]
+
+
+def test_null_order_number_rows_are_not_collapsed(get_flagged_orders, capsys):
+    # Two flagged rows with no order_number cannot be paired — both show.
+    module, db_path = get_flagged_orders
+    _insert(
+        db_path,
+        id="a",
+        email_message_id="m-a",
+        flagged=1,
+        flag_reason="Ordered, not yet shipped",
+        description="Stoiq Carry-On 17L",
+        order_number=None,
+    )
+    _insert(
+        db_path,
+        id="b",
+        email_message_id="m-b",
+        flagged=1,
+        flag_reason="Ordered, not yet shipped",
+        description="Ragnar Armoury",
+        order_number=None,
+    )
+    code, out, _err = _run(module, capsys)
+    assert code == 0
+    assert len(json.loads(out)) == 2
 
 
 def test_rows_ordered_by_order_date_desc(get_flagged_orders, capsys):
