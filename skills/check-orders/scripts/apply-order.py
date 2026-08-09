@@ -9,7 +9,14 @@ of `compute-order-id.py`). Required keys:
 
 Optional keys (default `None`/`null` when omitted):
 
-    amount, currency, expected_delivery, to_address
+    amount, currency, expected_delivery, to_address, merchant, order_number
+
+`merchant` and `order_number` are free-text metadata the agent extracts in
+Step 4 (`jbaruch/nanoclaw-orders#55`): `merchant` makes a flagged alert
+identifiable, `order_number` is the structured key that pairs the
+confirmation and shipment emails of one logical order. Both are normalized
+to a stripped non-empty string or NULL and only set on INSERT (the
+ON CONFLICT branch touches status/last_updated only).
 
 Stdout on success: a single JSON object describing what happened —
 `{"action": "inserted" | "status_updated" | "noop", "id": "..."}`. The
@@ -55,6 +62,19 @@ REQUIRED_FIELDS = (
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _optional_text(value):
+    """Return a stripped non-empty string, or None.
+
+    `merchant` and `order_number` are optional free-text metadata the
+    agent extracts in Step 4 (`jbaruch/nanoclaw-orders#55`). A missing,
+    non-string, or blank value is stored as NULL — indistinguishable from
+    "not captured", which every reader already tolerates.
+    """
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
 
 
 def _normalize_expected_delivery(value, order_id: str):
@@ -108,6 +128,8 @@ def main() -> int:
 
     last_updated = _now_iso()
     expected_delivery = _normalize_expected_delivery(order.get("expected_delivery"), order["id"])
+    merchant = _optional_text(order.get("merchant"))
+    order_number = _optional_text(order.get("order_number"))
     conn = None
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -128,8 +150,8 @@ def main() -> int:
             INSERT INTO orders (
               id, source, status, amount, currency, description, order_date,
               expected_delivery, email_message_id, to_address, flagged,
-              flag_reason, last_updated
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?)
+              flag_reason, last_updated, merchant, order_number
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?)
             ON CONFLICT(email_message_id) DO UPDATE SET
               status       = excluded.status,
               last_updated = excluded.last_updated
@@ -147,6 +169,8 @@ def main() -> int:
                 order["email_message_id"],
                 order.get("to_address"),
                 last_updated,
+                merchant,
+                order_number,
             ),
         )
         conn.commit()

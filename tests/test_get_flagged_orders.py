@@ -23,6 +23,7 @@ def _insert(db_path, **fields):
         "flagged": 0,
         "flag_reason": None,
         "last_updated": "2026-04-01T00:00:00Z",
+        "merchant": None,
     }
     defaults.update(fields)
     conn = sqlite3.connect(str(db_path))
@@ -30,7 +31,8 @@ def _insert(db_path, **fields):
         conn.execute(
             "INSERT INTO orders (id, source, status, amount, currency, description, "
             "order_date, expected_delivery, email_message_id, to_address, flagged, "
-            "flag_reason, last_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "flag_reason, last_updated, merchant) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             tuple(defaults.values()),
         )
         conn.commit()
@@ -73,7 +75,27 @@ def test_only_flagged_rows_appear(get_flagged_orders, capsys):
         "flag_reason": "Order cancelled",
         "source": "amazon",
         "order_date": "2026-04-15",
+        "merchant": None,
     }
+
+
+def test_surfaces_captured_merchant(get_flagged_orders, capsys):
+    # `#55`: a captured merchant is returned so the alert can identify a
+    # flagged item whose source is `other`.
+    module, db_path = get_flagged_orders
+    _insert(
+        db_path,
+        id="fm",
+        email_message_id="m-fm",
+        flagged=1,
+        flag_reason="Ordered, not yet shipped",
+        description="your order #140898",
+        source="other",
+        merchant="Ragnar",
+    )
+    code, out, _err = _run(module, capsys)
+    assert code == 0
+    assert json.loads(out)[0]["merchant"] == "Ragnar"
 
 
 def test_rows_ordered_by_order_date_desc(get_flagged_orders, capsys):
@@ -122,4 +144,5 @@ def test_returns_only_advertised_columns(get_flagged_orders, capsys):
         "flag_reason",
         "source",
         "order_date",
+        "merchant",
     }
