@@ -9,9 +9,9 @@ Covers each row of the Step 10 rule table:
   | shipped|ordered overdue expected_delivery          | "Overdue delivery"         | 30d    |
   | ordered    | id supplied in STUCK_IDS              | "Ordered, not yet shipped" | caller |
 
-Stuck-order pairing moved to the agent (`#55`); this script trusts the
-STUCK_IDS the agent supplies. The candidate window lives in
-`list-stuck-candidates.py` (see test_list_stuck_candidates.py).
+Stuck-order detection lives in `compute-stuck-orders.py` (`#55`); this
+script trusts the STUCK_IDS that script supplies (see
+test_compute_stuck_orders.py).
 
 Plus the unflag-past-cutoff branch, the EXCLUDED_IDS env-var honour, and
 the removal of the old "Large purchase" rule (`#55`).

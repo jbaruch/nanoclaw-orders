@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Apply Step 10 flagging rules to all non-excluded orders.
+"""Apply Step 9 flagging rules to all non-excluded orders.
 
-Step 10 of check-orders SKILL.md — set `flagged=1` and `flag_reason=...`
+Step 9 of check-orders SKILL.md — set `flagged=1` and `flag_reason=...`
 for orders that match an anomaly rule, AND unflag rows that are past
 their cutoff. Excluded orders (Step 6) must already have been
 unflagged by the time this runs; this pass intentionally does NOT
@@ -20,16 +20,12 @@ AND supplied as stuck), the first match wins per the order below:
   | status=ordered, id in STUCK_IDS            | "Ordered, not yet shipped" | supplied by caller  |
 
 Stuck-order rule (`jbaruch/nanoclaw-orders#55`): the primary signal the
-owner wants is "placed weeks ago, never shipped". Deciding which orders
-are stuck needs a candidate row paired against shipment rows by an order
-number written in sender-controlled subject text — that pairing is
-reasoning, not scripting (`jbaruch/coding-policy: script-delegation`, the
-Regex Trap), so it happens in the agent. The deterministic halves live in
-scripts: `list-stuck-candidates.py` (Step 8) selects the aged `ordered`
-rows and shipment rows; the agent pairs them (Step 9) and passes the
-surviving stuck ids here via the STUCK_IDS env var (comma-separated,
-same shape as EXCLUDED_IDS). This script only writes the flag for ids it
-is handed — it never parses a description.
+owner wants is "placed weeks ago, never shipped". `compute-stuck-orders.py`
+(Step 8) decides which `ordered` rows are stuck — a deterministic join on
+the persisted `order_number` column pairs an order's confirmation and
+shipment rows — and passes the surviving stuck ids here via the STUCK_IDS
+env var (comma-separated, same shape as EXCLUDED_IDS). This script only
+writes the flag for ids it is handed.
 
 The "Large purchase" rule was removed (`#55`): it flagged self-made
 purchases the owner already knew about (concert tickets, a laptop) with no
@@ -96,10 +92,9 @@ def _expected_delivery_within_30_days(value: str | None) -> bool:
 def _classify(row: dict, stuck_ids: set) -> tuple[bool, str | None]:
     """Return (should_flag, flag_reason) for a single order row.
 
-    `stuck_ids` is the set of `ordered`-row ids the agent's Step 9 pairing
-    determined are stuck (aged, with no matching shipment). This script
-    trusts that structured list rather than re-deriving order identity
-    from free text.
+    `stuck_ids` is the set of `ordered`-row ids `compute-stuck-orders.py`
+    (Step 8) determined are stuck (aged, with no matching shipment). This
+    script trusts that structured list rather than re-deriving it.
 
     Implements the anomaly rules above. First-match-wins in table order:
     a cancellation/refund outranks an overdue signal, and a concrete
@@ -141,8 +136,8 @@ def main() -> int:
         excluded_ids_raw = os.environ.get("EXCLUDED_IDS", "")
         excluded_ids = {s.strip() for s in excluded_ids_raw.split(",") if s.strip()}
 
-        # Stuck-order ids the agent paired in Step 9 (comma-separated,
-        # same shape as EXCLUDED_IDS). Empty = nothing stuck this pass.
+        # Stuck-order ids from compute-stuck-orders.py (Step 8),
+        # comma-separated (same shape as EXCLUDED_IDS). Empty = none stuck.
         stuck_ids_raw = os.environ.get("STUCK_IDS", "")
         stuck_ids = {s.strip() for s in stuck_ids_raw.split(",") if s.strip()}
 

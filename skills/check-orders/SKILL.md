@@ -1,6 +1,6 @@
 ---
 name: check-orders
-description: Fetches order-related emails from Gmail, updates the orders SQLite table, and flags recent anomalies — cancellations/refunds and overdue deliveries (statuses and per-status cutoffs owned by flag-anomalies.py), plus orders stuck in 'ordered' that never shipped (the stuck age window owned by list-stuck-candidates.py). Silent on normal order flow; older flagged events age out automatically to keep the alert channel signal-only. Use when the user asks about order status, order tracking, order emails, shipment status, purchase alerts, or needs to sync Gmail order data with the orders database.
+description: Fetches order-related emails from Gmail, updates the orders SQLite table, and flags recent anomalies — cancellations/refunds and overdue deliveries (statuses and per-status cutoffs owned by flag-anomalies.py), plus orders stuck in 'ordered' that never shipped (the stuck age window owned by compute-stuck-orders.py). Silent on normal order flow; older flagged events age out automatically to keep the alert channel signal-only. Use when the user asks about order status, order tracking, order emails, shipment status, purchase alerts, or needs to sync Gmail order data with the orders database.
 ---
 
 # Check Orders
@@ -83,8 +83,8 @@ Stdout: `{"source": "amazon" | "shopify" | "shop" | "other", "status": "shipped"
 | `description` | Subject stripped of boilerplate (e.g. remove "Your Amazon.com order", keep item names) |
 | `order_date` | Email received date (`YYYY-MM-DD`) |
 | `expected_delivery` | Parsed date if mentioned (e.g. "arrives by Dec 5"); `null` otherwise. Emit a canonical `YYYY-MM-DD` date or `null`. `apply-order.py` drops any off-contract value to `null` at write time — see its `_normalize_expected_delivery` (`jbaruch/nanoclaw-orders#55`). |
-| `merchant` | The store/brand name, from the sender's display name or domain (e.g. "Pacagen", "Amazon"); makes a flagged alert identifiable when `source` is `other`. `null` if none is discernible. |
-| `order_number` | The order/confirmation number from the subject (e.g. `W1584689498`, `#170910`); the structured key that pairs an order's confirmation and shipment emails. `null` if none. |
+| `merchant` | The store/brand name, from the sender's display name or domain (e.g. "Pacagen", "Amazon"). `null` if none is discernible. |
+| `order_number` | The order/confirmation number from the subject (e.g. `W1584689498`, `#170910`). `null` if none. |
 | `email_message_id` | Gmail message ID |
 | `to_address` | The `To:` header (used by Step 6 exclusions) |
 
@@ -125,11 +125,11 @@ The exclusion rule table and all matching logic are owned by the script — see 
 
 **Enforcement:** the script's `EXCLUSIONS` table is the runtime-authoritative mirror of the "Do NOT flag these" list in `/workspace/trusted/user_preferences.md`. When that list changes, update `EXCLUSIONS` in the same change.
 
-Stdout: `{"excluded_ids": [...], "excluded_ids_csv": "...", "matched": <int>, "unflagged": <int>}` (ids in ascending `id` order). Pass `excluded_ids_csv` verbatim as Step 10's `EXCLUDED_IDS` — do not recompute or edit the list. (`scripts/unflag-orders.py` remains available for ad-hoc unflagging outside this flow, e.g. user-acknowledged alerts.)
+Stdout: `{"excluded_ids": [...], "excluded_ids_csv": "...", "matched": <int>, "unflagged": <int>}` (ids in ascending `id` order). Pass `excluded_ids_csv` verbatim as Step 9's `EXCLUDED_IDS` — do not recompute or edit the list. (`scripts/unflag-orders.py` remains available for ad-hoc unflagging outside this flow, e.g. user-acknowledged alerts.)
 
 ## Step 7 — Auto-promote stale shipped/ordered orders
 
-Some senders (e.g. Chewy Autoship) never send a delivered email; status stays `shipped` and Step 10's "Overdue delivery" rule keeps firing. Promote stale rows to synthetic terminal `assumed_delivered`:
+Some senders (e.g. Chewy Autoship) never send a delivered email; status stays `shipped` and Step 9's "Overdue delivery" rule keeps firing. Promote stale rows to synthetic terminal `assumed_delivered`:
 
 ```bash
 python3 scripts/promote-stale-shipped.py
@@ -140,31 +140,21 @@ Eligibility (all three must hold):
 - `expected_delivery` non-null AND (ISO date ≥10 days before today, OR malformed/free-text)
 - `last_updated` ≥10 days ago
 
-Stdout: `{"promoted": <int>, "ids": [...]}`. Idempotent. `assumed_delivered` is synthetic terminal — Step 10 never flags it. Future emails still update via Step 5's merge rule.
+Stdout: `{"promoted": <int>, "ids": [...]}`. Idempotent. `assumed_delivered` is synthetic terminal — Step 9 never flags it. Future emails still update via Step 5's merge rule.
 
-## Step 8 — List stuck-order candidates
+## Step 8 — Compute stuck orders
 
-Get the aged `ordered` rows and the shipment rows for stuck-order pairing:
+Get the ids of orders stuck in `ordered` with no shipment:
 
 ```bash
-python3 scripts/list-stuck-candidates.py
+python3 scripts/compute-stuck-orders.py
 ```
 
-Stdout: `{"candidates": [{"id": "...", "source": "...", "description": "..."}, ...], "shipments": [{"id": "...", "source": "...", "description": "..."}, ...]}`. `candidates` are `ordered` rows inside the stuck age window; `shipments` are rows whose status proves an order left the ordered stage. The age window and status set are owned by the script (`STUCK_ORDER_MIN_DAYS`/`STUCK_ORDER_MAX_DAYS`, `_SHIPPED_STATUSES`). Descriptions are the sanitized subject fragments already in the table — never raw Gmail. Proceed immediately to Step 9.
+Stdout: `{"stuck_ids": ["<id>", ...]}` — the ids of orders stuck in `ordered` with no shipment. The age window, shipment statuses, and pairing rule are owned by `scripts/compute-stuck-orders.py` (module docstring + top-of-file constants). Pass the `stuck_ids` verbatim to Step 9 as `STUCK_IDS`. Proceed immediately to Step 9.
 
-## Step 9 — Pair candidates, determine stuck ids
+## Step 9 — Apply anomaly flagging
 
-Decide which candidates are genuinely stuck. A candidate is **stuck** unless a `shipments` row is the same logical order — i.e. it names the same order number in its `description`. This pairing reads sender-controlled free text, so it is your reasoning, not a script (`jbaruch/coding-policy: script-delegation`).
-
-- Match by the order number written in the description (e.g. `W1584689498`, `#170910`, `US5848051`). Same order number, same `source` → same order → the candidate shipped → **not** stuck.
-- A candidate whose description carries no discernible order number cannot be paired to a shipment — treat it as stuck (it is aged and there is no evidence it shipped).
-- Collect the `id` of every candidate left unpaired. That set is the Step 10 `STUCK_IDS`.
-
-If `candidates` is empty, `STUCK_IDS` is empty. Proceed immediately to Step 10.
-
-## Step 10 — Apply anomaly flagging
-
-Flag every non-excluded row. Pass the Step 6 id list via `EXCLUDED_IDS` and the Step 9 stuck ids via `STUCK_IDS`:
+Flag every non-excluded row. Pass the Step 6 id list via `EXCLUDED_IDS` and the Step 8 stuck ids via `STUCK_IDS`:
 
 ```bash
 EXCLUDED_IDS="<id1>,<id2>,..." STUCK_IDS="<id3>,<id4>,..." \
@@ -175,9 +165,9 @@ Empty `EXCLUDED_IDS` and empty `STUCK_IDS` are both fine. Stdout: `{"flagged": <
 
 Which statuses flag and the per-status age cutoffs are owned by `scripts/flag-anomalies.py` — its module-docstring rule table and `_classify()` are the single source of truth. The stuck-order signal is applied from `STUCK_IDS` verbatim; the script never re-derives it.
 
-Flow effects: each matching row gets `flagged=1` plus a `flag_reason`; rows past their cutoff (or that no longer match) are unflagged in the same pass; rows that never matched stay unflagged. The `ids_flagged` list drives the Step 12 report.
+Flow effects: each matching row gets `flagged=1` plus a `flag_reason`; rows past their cutoff (or that no longer match) are unflagged in the same pass; rows that never matched stay unflagged. The `ids_flagged` list drives the Step 11 report.
 
-## Step 11 — Re-stamp orders_metadata (success-path refresh)
+## Step 10 — Re-stamp orders_metadata (success-path refresh)
 
 ```bash
 python3 scripts/write-orders-metadata.py
@@ -185,20 +175,18 @@ python3 scripts/write-orders-metadata.py
 
 Same script as Step 3, re-run on the happy path. Idempotent. Stdout: `{"last_checked": "<iso>", "last_updated": "<iso>"}`.
 
-## Step 12 — Report flagged items
+## Step 11 — Report flagged items
 
 ```bash
 python3 scripts/get-flagged-orders.py | python3 scripts/render-order-alerts.py
 ```
 
-`get-flagged-orders.py` emits the flagged rows as a JSON array ordered by `order_date` descending; `render-order-alerts.py` HTML-escapes every field (`description` derives from sender-controlled email text) and emits `{"message": <str|null>, "count": <int>}`. `message` is the complete Telegram HTML text — one bullet per order, shaped:
+`get-flagged-orders.py` emits the flagged rows as a JSON array ordered by `order_date` descending, collapsing rows that share a `(source, order_number)` logical order to one; `render-order-alerts.py` HTML-escapes every field (`description` derives from sender-controlled email text) and emits `{"message": <str|null>, "count": <int>}`. `message` is the complete Telegram HTML text — one bullet per order, shaped:
 
 ```
 <b>📦 Order alerts:</b>
 
 • <b>[description]</b> — [flag_reason] (<i>[merchant or source], [order_date]</i>)
 ```
-
-The meta leads with the captured `merchant` and falls back to `source` when none was captured, so a flagged `source=other` item is still identifiable.
 
 `message: null` → no flagged orders → stay silent. Otherwise send the `message` value verbatim via `mcp__nanoclaw__send_message` — never rebuild or reformat it by hand; the escaping is what keeps a hostile subject line from breaking the Telegram HTML parse or injecting tags. Finish here.

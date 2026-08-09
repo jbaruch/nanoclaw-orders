@@ -2,10 +2,10 @@
 """Stamp orders_metadata last_checked / last_updated with current UTC.
 
 Called from check-orders SKILL.md at TWO points: Step 3 (write-ahead,
-right after the REST fetch returns parseable JSON) and Step 11
+right after the REST fetch returns parseable JSON) and Step 10
 (success-path refresh, after Steps 4-8 complete). Both invocations
 use the same UPSERT shape — Step 3 stamps the fetch boundary so a
-mid-run kill still advances the cursor; Step 11 refines to the
+mid-run kill still advances the cursor; Step 10 refines to the
 "fully processed through" boundary on the happy path. Both keys get
 the same ISO-8601 timestamp via parameter-bound UPSERT. Extracted
 from the SKILL.md inline SQL block per `coding-policy:

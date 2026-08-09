@@ -3,7 +3,7 @@
 
 Step 7 of check-orders SKILL.md: some senders (e.g. Chewy Autoship)
 never send a delivered email — the order arrives but the status in
-the orders table stays `shipped` forever and Step 10's "Overdue
+the orders table stays `shipped` forever and Step 9's "Overdue
 delivery" rule keeps firing for the full 30-day cutoff.
 
 Eligibility (all three must hold):

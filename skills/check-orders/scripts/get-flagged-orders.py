@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
-"""Fetch currently-flagged orders for the Step 12 alert message.
+"""Fetch currently-flagged orders for the Step 11 alert message.
 
-Step 12 of check-orders SKILL.md. Extracted from inline SKILL prose
-per `coding-policy: script-delegation`. Returns the same row shape
-as `tessl__morning-brief/scripts/fetch-flagged-orders.py` because
-both rendering paths consume the same fields (description,
-flag_reason, source, order_date) — the difference is just which
-caller chooses to send the resulting message.
+Step 11 of check-orders SKILL.md. Extracted from inline SKILL prose
+per `coding-policy: script-delegation`.
+
+Flagged rows sharing a `(source, order_number)` logical order are
+collapsed to one — the confirmation and shipment emails of one order can
+both be flagged, and the alert must show one line per order, not one per
+email (`jbaruch/nanoclaw-orders#55`). The most-recent row (input is
+ordered by `order_date` descending) is the representative; rows with a
+NULL `order_number` cannot be paired and each stand alone.
 
 Stdout on success: a single JSON array (possibly empty) of
 `{description, flag_reason, source, order_date, merchant}` objects,
 ordered by order_date descending. `merchant` (nullable) is surfaced so
-the alert can identify a flagged item whose `source` is `other`
-(`jbaruch/nanoclaw-orders#55`).
+the alert can identify a flagged item whose `source` is `other`.
+`order_number` drives the collapse but is not part of the output shape.
 
 Exit codes: 0 success, 1 IO/schema error.
 """
@@ -34,13 +37,25 @@ def main() -> int:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             """
-            SELECT description, flag_reason, source, order_date, merchant
+            SELECT description, flag_reason, source, order_date, merchant,
+                   order_number
               FROM orders
              WHERE flagged = 1
             ORDER BY order_date DESC
             """
         ).fetchall()
-        json.dump([dict(r) for r in rows], sys.stdout)
+        seen_keys = set()
+        result = []
+        for row in rows:
+            record = dict(row)
+            order_number = record.pop("order_number")
+            if isinstance(order_number, str) and order_number.strip():
+                key = (record["source"], order_number.strip())
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+            result.append(record)
+        json.dump(result, sys.stdout)
         sys.stdout.write("\n")
         return 0
     except sqlite3.Error as exc:

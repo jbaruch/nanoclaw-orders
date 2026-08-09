@@ -2,6 +2,12 @@
 
 All notable changes to this tile are documented here.
 
+### Changed — `check-orders` dedups by the persisted `order_number`
+
+With `order_number` now stored on every row (previous release), stuck-order pairing is a deterministic join on `(source, order_number)` and moves back into a script: the new `compute-stuck-orders.py` (Step 8) computes the stuck ids directly, replacing the interim agent-pairing step, and `flag-anomalies.py` flags them (Step 9). Reasoning at extraction (the agent reads the order number off the subject), determinism at use. The report step (`get-flagged-orders.py`) now collapses flagged rows that share a `(source, order_number)` logical order to one alert line, so an order never surfaces once per email. Removes SKILL Step 9's agent pairing and renumbers the tail (12 steps → 11). This is the dedup half of `jbaruch/nanoclaw-orders#55`.
+
+Also folded a review advisory: trimmed rationale clauses from the Step 4 `merchant`/`order_number` extraction rules and the Step 11 render note, per `context-writing-style`.
+
 ## 0.1.36 — 2026-08-09
 
 ### Added — `check-orders` captures merchant + order_number, alerts identify the merchant
