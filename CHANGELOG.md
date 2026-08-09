@@ -2,6 +2,8 @@
 
 All notable changes to this tile are documented here.
 
+## 0.1.36 — 2026-08-09
+
 ### Added — `check-orders` captures merchant + order_number, alerts identify the merchant
 
 Now that the shared `orders` table carries `merchant` and `order_number` columns (nanoclaw `state-017`), Step 4 extracts both and `apply-order.py` stores them (normalized to a stripped non-empty string or NULL). The flagged-order alert now leads its meta with the captured merchant and falls back to `source`, so a flagged item whose `source` is `other` is identifiable instead of an anonymous subject fragment (`jbaruch/nanoclaw-orders#55`). `order_number` is captured here as the structured key that a follow-up uses to pair and dedup an order's confirmation and shipment emails.
