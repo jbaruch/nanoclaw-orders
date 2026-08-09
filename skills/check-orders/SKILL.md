@@ -150,7 +150,7 @@ Get the ids of orders stuck in `ordered` with no shipment:
 python3 scripts/compute-stuck-orders.py
 ```
 
-Stdout: `{"stuck_ids": ["<id>", ...]}`. The script pairs each aged `ordered` row against shipment rows by the persisted `(source, order_number)` key and returns the unpaired ids. The age window, status set, and pairing are owned by the script (`STUCK_ORDER_MIN_DAYS`/`STUCK_ORDER_MAX_DAYS`, `_SHIPPED_STATUSES`, `_order_key`). Pass the `stuck_ids` verbatim to Step 9 as `STUCK_IDS`. Proceed immediately to Step 9.
+Stdout: `{"stuck_ids": ["<id>", ...]}` — the ids of orders stuck in `ordered` with no shipment. The age window, shipment statuses, and pairing rule are owned by `scripts/compute-stuck-orders.py` (module docstring + top-of-file constants). Pass the `stuck_ids` verbatim to Step 9 as `STUCK_IDS`. Proceed immediately to Step 9.
 
 ## Step 9 — Apply anomaly flagging
 

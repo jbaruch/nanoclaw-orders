@@ -2,7 +2,7 @@
 
 [![tessl](https://img.shields.io/endpoint?url=https%3A%2F%2Fapi.tessl.io%2Fv1%2Fbadges%2Fjbaruch%2Fnanoclaw-orders)](https://tessl.io/registry/jbaruch/nanoclaw-orders)
 
-Order-email triage for NanoClaw. Fetches order-related Gmail, keeps the `orders` SQLite table current, and flags recent anomalies — cancellations/refunds, large purchases until delivered, and overdue deliveries — surfacing only the flagged events so the alert channel stays signal-only.
+Order-email triage for NanoClaw. Fetches order-related Gmail, keeps the `orders` SQLite table current, and flags recent anomalies — cancellations/refunds, overdue deliveries, and orders stuck in `ordered` that never shipped — surfacing only the flagged events so the alert channel stays signal-only.
 
 Per-chat overlay tile. Install via NanoClaw's `containerConfig.additionalTiles` mechanism.
 
