@@ -2,6 +2,12 @@
 
 All notable changes to this tile are documented here.
 
+### Added — `check-orders` captures merchant + order_number, alerts identify the merchant
+
+Now that the shared `orders` table carries `merchant` and `order_number` columns (nanoclaw `state-017`), Step 4 extracts both and `apply-order.py` stores them (normalized to a stripped non-empty string or NULL). The flagged-order alert now leads its meta with the captured merchant and falls back to `source`, so a flagged item whose `source` is `other` is identifiable instead of an anonymous subject fragment (`jbaruch/nanoclaw-orders#55`). `order_number` is captured here as the structured key that a follow-up uses to pair and dedup an order's confirmation and shipment emails.
+
+Also folded in a review advisory: trimmed the Step 4 `expected_delivery` note to a compact directive plus a pointer to `apply-order.py`'s `_normalize_expected_delivery`, instead of restating the script's internal validation predicate.
+
 ## 0.1.35 — 2026-08-09
 
 ### Fixed — `apply-order.py` drops non-date `expected_delivery` at write time

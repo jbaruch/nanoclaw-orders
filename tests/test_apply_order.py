@@ -211,3 +211,44 @@ def test_whitespace_padded_canonical_date_is_stored(apply_order, monkeypatch, ca
     code, _out, _err = _run(module, monkeypatch, capsys, payload)
     assert code == 0
     assert _select_expected_delivery(db_path, "msg-aaa") == "2026-04-05"
+
+
+def _select_merchant_order_number(db_path, email_message_id):
+    conn = sqlite3.connect(str(db_path))
+    try:
+        return conn.execute(
+            "SELECT merchant, order_number FROM orders WHERE email_message_id = ?",
+            (email_message_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+
+
+def test_merchant_and_order_number_are_stored(apply_order, monkeypatch, capsys):
+    module, db_path = apply_order
+    payload = _base_order()
+    payload["merchant"] = "Pacagen"
+    payload["order_number"] = "W1584689498"
+    code, _out, _err = _run(module, monkeypatch, capsys, payload)
+    assert code == 0
+    assert _select_merchant_order_number(db_path, "msg-aaa") == ("Pacagen", "W1584689498")
+
+
+def test_blank_and_absent_merchant_order_number_store_null(apply_order, monkeypatch, capsys):
+    module, db_path = apply_order
+    payload = _base_order()
+    payload["merchant"] = "   "  # whitespace-only
+    # order_number absent entirely
+    code, _out, _err = _run(module, monkeypatch, capsys, payload)
+    assert code == 0
+    assert _select_merchant_order_number(db_path, "msg-aaa") == (None, None)
+
+
+def test_merchant_and_order_number_are_stripped(apply_order, monkeypatch, capsys):
+    module, db_path = apply_order
+    payload = _base_order()
+    payload["merchant"] = "  Ragnar  "
+    payload["order_number"] = "  #140898 "
+    code, _out, _err = _run(module, monkeypatch, capsys, payload)
+    assert code == 0
+    assert _select_merchant_order_number(db_path, "msg-aaa") == ("Ragnar", "#140898")

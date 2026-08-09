@@ -82,7 +82,9 @@ Stdout: `{"source": "amazon" | "shopify" | "shop" | "other", "status": "shipped"
 | `currency` | `"USD"` |
 | `description` | Subject stripped of boilerplate (e.g. remove "Your Amazon.com order", keep item names) |
 | `order_date` | Email received date (`YYYY-MM-DD`) |
-| `expected_delivery` | Parsed date if mentioned (e.g. "arrives by Dec 5"); `null` otherwise. Emit a canonical `YYYY-MM-DD` date or `null` — never a scraped word ("today"/"March"), a timestamp, or a compact date. `apply-order.py` is the backstop: any value whose whole stripped form is not exactly `YYYY-MM-DD` (zero-padded) is dropped to `null` at write time (`jbaruch/nanoclaw-orders#55`). |
+| `expected_delivery` | Parsed date if mentioned (e.g. "arrives by Dec 5"); `null` otherwise. Emit a canonical `YYYY-MM-DD` date or `null`. `apply-order.py` drops any off-contract value to `null` at write time — see its `_normalize_expected_delivery` (`jbaruch/nanoclaw-orders#55`). |
+| `merchant` | The store/brand name, from the sender's display name or domain (e.g. "Pacagen", "Amazon"); makes a flagged alert identifiable when `source` is `other`. `null` if none is discernible. |
+| `order_number` | The order/confirmation number from the subject (e.g. `W1584689498`, `#170910`); the structured key that pairs an order's confirmation and shipment emails. `null` if none. |
 | `email_message_id` | Gmail message ID |
 | `to_address` | The `To:` header (used by Step 6 exclusions) |
 
@@ -107,7 +109,7 @@ Produces `{source}-{order_date}-{hash}` where `hash` is the first 8 hex chars of
 Pipe a single-line JSON object with the parsed fields plus the computed `id`:
 
 ```bash
-echo '{"id": "...", "source": "...", "status": "...", "amount": 19.99, "currency": "USD", "description": "...", "order_date": "2026-04-29", "expected_delivery": null, "email_message_id": "...", "to_address": "..."}' \
+echo '{"id": "...", "source": "...", "status": "...", "amount": 19.99, "currency": "USD", "description": "...", "order_date": "2026-04-29", "expected_delivery": null, "email_message_id": "...", "to_address": "...", "merchant": "...", "order_number": "..."}' \
   | python3 scripts/apply-order.py
 ```
 
@@ -194,7 +196,9 @@ python3 scripts/get-flagged-orders.py | python3 scripts/render-order-alerts.py
 ```
 <b>📦 Order alerts:</b>
 
-• <b>[description]</b> — [flag_reason] (<i>[source], [order_date]</i>)
+• <b>[description]</b> — [flag_reason] (<i>[merchant or source], [order_date]</i>)
 ```
+
+The meta leads with the captured `merchant` and falls back to `source` when none was captured, so a flagged `source=other` item is still identifiable.
 
 `message: null` → no flagged orders → stay silent. Otherwise send the `message` value verbatim via `mcp__nanoclaw__send_message` — never rebuild or reformat it by hand; the escaping is what keeps a hostile subject line from breaking the Telegram HTML parse or injecting tags. Finish here.

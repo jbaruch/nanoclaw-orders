@@ -12,7 +12,7 @@ agent sends its stdout verbatim and never rebuilds the message by
 hand (per `coding-policy: script-delegation`).
 
 Input (stdin): the JSON array `get-flagged-orders.py` prints —
-`[{"description", "flag_reason", "source", "order_date"}, ...]`.
+`[{"description", "flag_reason", "source", "order_date", "merchant"}, ...]`.
 
 Output (stdout): a single JSON object (structured data per
 `coding-policy: script-delegation`):
@@ -24,7 +24,11 @@ order in input order:
 
     <b>📦 Order alerts:</b>
 
-    • <b>{description}</b> — {flag_reason} (<i>{source}, {order_date}</i>)
+    • <b>{description}</b> — {flag_reason} (<i>{merchant or source}, {order_date}</i>)
+
+The meta leads with `merchant` when present and falls back to `source`,
+so a flagged item whose `source` is `other` is still identifiable
+(`jbaruch/nanoclaw-orders#55`).
 
 An empty input array yields `{"message": null, "count": 0}` (the
 SKILL's stay-silent signal). Fields are coerced to str and
@@ -59,10 +63,13 @@ def render(orders: list) -> str:
         return ""
     lines = [HEADER, ""]
     for order in orders:
+        # Prefer the specific merchant; fall back to the coarse source
+        # (amazon/shopify/other) when no merchant was captured.
+        identifier = order.get("merchant") or order.get("source")
         lines.append(
             f"• <b>{_esc(order.get('description'))}</b> — "
             f"{_esc(order.get('flag_reason'))} "
-            f"(<i>{_esc(order.get('source'))}, {_esc(order.get('order_date'))}</i>)"
+            f"(<i>{_esc(identifier)}, {_esc(order.get('order_date'))}</i>)"
         )
     return "\n".join(lines)
 

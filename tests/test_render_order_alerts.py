@@ -56,6 +56,30 @@ def test_renders_single_order_bullet(render_order_alerts, monkeypatch, capsys):
     )
 
 
+def test_meta_prefers_merchant_over_source(render_order_alerts, monkeypatch, capsys):
+    # `#55`: a captured merchant leads the meta so a `source=other` item is
+    # identifiable.
+    code, out, _err = _run(
+        render_order_alerts,
+        monkeypatch,
+        capsys,
+        _payload(source="other", merchant="Pacagen"),
+    )
+    assert code == 0
+    assert _message(out) == (
+        "<b>📦 Order alerts:</b>\n\n• <b>Thing</b> — Order cancelled (<i>Pacagen, 2026-04-01</i>)"
+    )
+
+
+def test_meta_falls_back_to_source_without_merchant(render_order_alerts, monkeypatch, capsys):
+    # No merchant captured (or blank) → the coarse source is shown.
+    code, out, _err = _run(
+        render_order_alerts, monkeypatch, capsys, _payload(merchant=None, source="amazon")
+    )
+    assert code == 0
+    assert "(<i>amazon, 2026-04-01</i>)" in _message(out)
+
+
 def test_escapes_ampersand_and_angle_brackets(render_order_alerts, monkeypatch, capsys):
     code, out, _err = _run(
         render_order_alerts, monkeypatch, capsys, _payload(description="A&B <tag>")

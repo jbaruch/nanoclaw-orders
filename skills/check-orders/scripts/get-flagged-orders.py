@@ -9,8 +9,10 @@ flag_reason, source, order_date) — the difference is just which
 caller chooses to send the resulting message.
 
 Stdout on success: a single JSON array (possibly empty) of
-`{description, flag_reason, source, order_date}` objects, ordered by
-order_date descending.
+`{description, flag_reason, source, order_date, merchant}` objects,
+ordered by order_date descending. `merchant` (nullable) is surfaced so
+the alert can identify a flagged item whose `source` is `other`
+(`jbaruch/nanoclaw-orders#55`).
 
 Exit codes: 0 success, 1 IO/schema error.
 """
@@ -32,7 +34,7 @@ def main() -> int:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             """
-            SELECT description, flag_reason, source, order_date
+            SELECT description, flag_reason, source, order_date, merchant
               FROM orders
              WHERE flagged = 1
             ORDER BY order_date DESC

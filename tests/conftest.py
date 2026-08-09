@@ -17,13 +17,13 @@ def _load(name: str, relpath: str):
 
 
 def _seed_orders_db(db_path: str) -> None:
-    """Apply the state-001 + state-002 + state-003 schema to a fresh
-    SQLite file. Mirrors the DDL the orchestrator's `state-001-orders`,
-    `state-002-email-feedback`, and `state-003-email-feedback-schema-version`
-    migrations produce, so these tests stay tied to the real schema rather
-    than a divergent fixture shape. The orders cluster shares the
-    orchestrator's `messages.db` (mounted rw on main/trusted) per
-    jbaruch/nanoclaw container-runner."""
+    """Apply the state-001 + state-002 + state-003 + state-017 schema to a
+    fresh SQLite file. Mirrors the DDL the orchestrator's `state-001-orders`,
+    `state-002-email-feedback`, `state-003-email-feedback-schema-version`,
+    and `state-017-orders-merchant-order-number` migrations produce, so these
+    tests stay tied to the real schema rather than a divergent fixture shape.
+    The orders cluster shares the orchestrator's `messages.db` (mounted rw on
+    main/trusted) per jbaruch/nanoclaw container-runner."""
     conn = _sqlite3.connect(db_path)
     try:
         conn.executescript(
@@ -41,10 +41,13 @@ def _seed_orders_db(db_path: str) -> None:
               to_address        TEXT,
               flagged           INTEGER NOT NULL DEFAULT 0,
               flag_reason       TEXT,
-              last_updated      TEXT NOT NULL
+              last_updated      TEXT NOT NULL,
+              merchant          TEXT,
+              order_number      TEXT
             );
             CREATE INDEX idx_orders_source_status ON orders(source, status);
             CREATE INDEX idx_orders_order_date ON orders(order_date);
+            CREATE INDEX idx_orders_source_order_number ON orders(source, order_number);
             CREATE TABLE orders_metadata (key TEXT PRIMARY KEY, value TEXT);
             CREATE TABLE email_feedback (
               id             INTEGER PRIMARY KEY AUTOINCREMENT,
