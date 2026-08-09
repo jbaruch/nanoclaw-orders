@@ -168,6 +168,8 @@ def test_non_canonical_expected_delivery_is_dropped_to_null(apply_order, monkeyp
         "2026-04-05T00:00:00Z",  # timestamp
         "2026-04-05junk",  # trailing garbage
         "20260405",  # compact, no dashes
+        "2026-4-5",  # not zero-padded
+        "2026-13-40",  # padded shape but not a real date
     )
     for i, junk in enumerate(off_contract):
         payload = _base_order()
@@ -180,14 +182,14 @@ def test_non_canonical_expected_delivery_is_dropped_to_null(apply_order, monkeyp
         assert "dropping non-date expected_delivery" in err
 
 
-def test_non_canonical_date_is_canonicalized(apply_order, monkeypatch, capsys):
-    # A dashed but non-zero-padded date is valid; it is stored zero-padded.
+def test_canonical_date_is_stored_verbatim(apply_order, monkeypatch, capsys):
+    # An exactly-canonical value is stored unchanged.
     module, db_path = apply_order
     payload = _base_order()
-    payload["expected_delivery"] = "2026-4-5"
+    payload["expected_delivery"] = "2026-12-05"
     code, _out, _err = _run(module, monkeypatch, capsys, payload)
     assert code == 0
-    assert _select_expected_delivery(db_path, "msg-aaa") == "2026-04-05"
+    assert _select_expected_delivery(db_path, "msg-aaa") == "2026-12-05"
 
 
 def test_absent_expected_delivery_stays_null(apply_order, monkeypatch, capsys):

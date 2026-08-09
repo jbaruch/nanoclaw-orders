@@ -30,11 +30,18 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import sys
 from datetime import datetime, timezone
 
 DB_PATH = os.environ.get("ORDERS_DB_PATH", "/workspace/store/messages.db")
+
+# Exact canonical calendar-date shape: four-digit year, zero-padded month
+# and day. A fixed, fully-enumerable format, so a regex is the right guard
+# (`jbaruch/coding-policy: script-delegation`). strptime then confirms the
+# padded value is a real date (rejects 2026-13-40).
+_CANONICAL_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 REQUIRED_FIELDS = (
     "id",
@@ -56,19 +63,23 @@ def _normalize_expected_delivery(value, order_id: str):
     The agent parses `expected_delivery` from free-text subjects in Step 4,
     which lets scraped non-dates ("today", "March", "overnight") through
     (`jbaruch/nanoclaw-orders#55`). The stored contract is a canonical
-    calendar date: the ENTIRE stripped value must match `YYYY-MM-DD`, and
-    the canonical (zero-padded) form is what gets stored. Timestamps,
-    trailing garbage ("2026-04-05junk"), compact ("20260405"), and free
-    text are all off-contract and dropped to NULL so they never feed the
-    overdue check. None passes through unchanged (no delivery mentioned).
+    calendar date: the ENTIRE stripped value must be exactly `YYYY-MM-DD`
+    with zero-padded month and day. Timestamps, trailing garbage
+    ("2026-04-05junk"), compact ("20260405"), non-padded ("2026-4-5"), and
+    free text are all off-contract and dropped to NULL so they never feed
+    the overdue check. Surrounding whitespace is stripped before the check.
+    None passes through unchanged (no delivery mentioned).
     """
     if value is None:
         return None
-    if isinstance(value, str) and value.strip():
-        try:
-            return datetime.strptime(value.strip(), "%Y-%m-%d").date().isoformat()
-        except ValueError:
-            pass
+    if isinstance(value, str):
+        stripped = value.strip()
+        if _CANONICAL_DATE_RE.fullmatch(stripped):
+            try:
+                datetime.strptime(stripped, "%Y-%m-%d")
+                return stripped
+            except ValueError:
+                pass
     sys.stderr.write(
         f"apply-order.py: dropping non-date expected_delivery={value!r} for "
         f"order {order_id} — only a canonical YYYY-MM-DD date is stored so "
