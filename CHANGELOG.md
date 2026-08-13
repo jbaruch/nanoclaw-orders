@@ -2,6 +2,8 @@
 
 All notable changes to this tile are documented here.
 
+## 0.1.39 — 2026-08-13
+
 ### Fixed — `check-orders` stops flagging never-ship merchants and honours owner snoozes
 
 The two refinements left over from `jbaruch/nanoclaw-orders#61`, closing `#63`.
