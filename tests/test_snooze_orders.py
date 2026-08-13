@@ -16,14 +16,27 @@ import os
 import pathlib
 import sqlite3
 import subprocess
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
 FROZEN_TODAY = date(2026, 4, 30)
 
-FUTURE = "2026-06-01"
-PAST = "2026-04-01"
+# Derived from the frozen reference, never written as literals: a
+# hardcoded future date rots as the run date advances
+# (`coding-policy: testing-standards` Determinism).
+FUTURE = (FROZEN_TODAY + timedelta(days=32)).isoformat()
+PAST = (FROZEN_TODAY - timedelta(days=29)).isoformat()
+
+# The same future instant in forms `date.fromisoformat` accepts but the
+# documented contract does not.
+_FUTURE_ISO_WEEK = (FROZEN_TODAY + timedelta(days=32)).isocalendar()
+NONCANONICAL_FUTURE = (
+    FUTURE.replace("-", ""),
+    f"{_FUTURE_ISO_WEEK.year}-W{_FUTURE_ISO_WEEK.week:02d}-{_FUTURE_ISO_WEEK.weekday}",
+    f"{FUTURE[:4]}-{int(FUTURE[5:7])}-{int(FUTURE[8:])}",
+    FUTURE.replace("-", "/"),
+)
 
 
 class _FrozenDate(date):
@@ -325,7 +338,7 @@ def test_assignment_before_the_pipe_does_not_reach_the_script(snooze_orders):
 
 @pytest.mark.parametrize(
     "noncanonical",
-    ["20260601", "2026-W40-1", "2026-6-1", "2026/06/01"],
+    NONCANONICAL_FUTURE,
 )
 def test_noncanonical_iso_forms_exit_2(snooze_orders, monkeypatch, capsys, noncanonical):
     # `date.fromisoformat` would accept the basic and week forms and

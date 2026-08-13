@@ -11,7 +11,7 @@ never move with the run date.
 
 import json
 import sqlite3
-from datetime import date
+from datetime import date, timedelta
 
 FROZEN_TODAY = date(2026, 4, 30)
 
@@ -20,6 +20,20 @@ FIVE_DAYS_AGO = "2026-04-25"  # below min window (< 7d) — too fresh
 SEVEN_DAYS_AGO = "2026-04-23"  # exactly at the inclusive min boundary
 FORTY_FIVE_DAYS_AGO = "2026-03-16"  # in window
 HUNDRED_DAYS_AGO = "2026-01-20"  # past max window (> 90d) — aged out
+
+# Snooze markers, derived from the frozen reference rather than written
+# as literals: a hardcoded future date rots as the run date advances,
+# and deriving keeps these correct if FROZEN_TODAY ever moves
+# (`coding-policy: testing-standards` Determinism).
+SNOOZE_OPEN = (FROZEN_TODAY + timedelta(days=32)).isoformat()
+SNOOZE_LAPSED = (FROZEN_TODAY - timedelta(days=29)).isoformat()
+
+# The same open-window instant in forms `date.fromisoformat` accepts but
+# the column's contract does not, so each proves a NONCANONICAL FUTURE
+# value still fails to suppress.
+SNOOZE_OPEN_BASIC = SNOOZE_OPEN.replace("-", "")
+_OPEN_ISO_WEEK = (FROZEN_TODAY + timedelta(days=32)).isocalendar()
+SNOOZE_OPEN_WEEK = f"{_OPEN_ISO_WEEK.year}-W{_OPEN_ISO_WEEK.week:02d}-{_OPEN_ISO_WEEK.weekday}"
 
 
 class _FrozenDate(date):
@@ -325,7 +339,7 @@ def test_open_snooze_window_suppresses(compute_stuck_orders, monkeypatch, capsys
         email_message_id="m-ragnar",
         description="Ragnar Armoury — truly not shipped",
         order_date=FORTY_FIVE_DAYS_AGO,
-        snooze_until="2026-06-01",  # after FROZEN_TODAY (2026-04-30)
+        snooze_until=SNOOZE_OPEN,
     )
     code, payload = _run(module, monkeypatch, capsys)
     assert code == 0
@@ -339,7 +353,7 @@ def test_lapsed_snooze_window_reflags(compute_stuck_orders, monkeypatch, capsys)
         id="lapsed",
         email_message_id="m-lapsed",
         order_date=FORTY_FIVE_DAYS_AGO,
-        snooze_until="2026-04-01",  # before FROZEN_TODAY
+        snooze_until=SNOOZE_LAPSED,
     )
     _code, payload = _run(module, monkeypatch, capsys)
     assert payload == {"stuck_ids": ["lapsed"]}
@@ -396,7 +410,7 @@ def test_runs_against_pre_state_018_schema(compute_stuck_orders_legacy, monkeypa
 def test_iso_prefix_with_trailing_garbage_does_not_suppress(
     compute_stuck_orders, monkeypatch, capsys
 ):
-    # A leading-10-character slice would parse this as 2026-06-01 and
+    # A leading-10-character slice would parse this as a valid date and
     # suppress the order, contradicting the contract that a malformed
     # marker cannot hide a real alert. `snooze_until` is only ever written
     # as a bare YYYY-MM-DD, so the whole value must parse.
@@ -406,7 +420,7 @@ def test_iso_prefix_with_trailing_garbage_does_not_suppress(
         id="prefix-garbage",
         email_message_id="m-prefix-garbage",
         order_date=FORTY_FIVE_DAYS_AGO,
-        snooze_until="2026-06-01garbage",
+        snooze_until=f"{SNOOZE_OPEN}garbage",
     )
     code, payload = _run(module, monkeypatch, capsys)
     assert code == 0
@@ -422,7 +436,7 @@ def test_timestamp_shaped_snooze_does_not_suppress(compute_stuck_orders, monkeyp
         id="timestamped",
         email_message_id="m-timestamped",
         order_date=FORTY_FIVE_DAYS_AGO,
-        snooze_until="2026-06-01T00:00:00Z",
+        snooze_until=f"{SNOOZE_OPEN}T00:00:00Z",
     )
     _code, payload = _run(module, monkeypatch, capsys)
     assert payload == {"stuck_ids": ["timestamped"]}
@@ -438,7 +452,7 @@ def test_iso_basic_form_does_not_suppress(compute_stuck_orders, monkeypatch, cap
         id="basic-form",
         email_message_id="m-basic",
         order_date=FORTY_FIVE_DAYS_AGO,
-        snooze_until="20260601",
+        snooze_until=SNOOZE_OPEN_BASIC,
     )
     _code, payload = _run(module, monkeypatch, capsys)
     assert payload == {"stuck_ids": ["basic-form"]}
@@ -451,7 +465,7 @@ def test_iso_week_form_does_not_suppress(compute_stuck_orders, monkeypatch, caps
         id="week-form",
         email_message_id="m-week",
         order_date=FORTY_FIVE_DAYS_AGO,
-        snooze_until="2026-W40-1",
+        snooze_until=SNOOZE_OPEN_WEEK,
     )
     _code, payload = _run(module, monkeypatch, capsys)
     assert payload == {"stuck_ids": ["week-form"]}
