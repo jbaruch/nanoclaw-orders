@@ -321,3 +321,33 @@ def test_assignment_before_the_pipe_does_not_reach_the_script(snooze_orders):
 
     assert result.returncode == 2
     assert "SNOOZE_UNTIL is required" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "noncanonical",
+    ["20260601", "2026-W40-1", "2026-6-1", "2026/06/01"],
+)
+def test_noncanonical_iso_forms_exit_2(snooze_orders, monkeypatch, capsys, noncanonical):
+    # `date.fromisoformat` would accept the basic and week forms and
+    # normalize them into a stored snooze the stuck detector then ignores
+    # (it honours the canonical form alone) — a silent no-op the owner
+    # would believe had taken effect.
+    module, db_path = snooze_orders
+    _insert(db_path, id="x", email_message_id="m-x")
+
+    with pytest.raises(SystemExit) as excinfo:
+        _run(module, monkeypatch, capsys, ["x"], until=noncanonical)
+
+    assert excinfo.value.code == 2
+    assert _row(db_path, "x")["snooze_until"] is None
+
+
+def test_impossible_calendar_date_exits_2(snooze_orders, monkeypatch, capsys):
+    module, db_path = snooze_orders
+    _insert(db_path, id="x", email_message_id="m-x")
+
+    with pytest.raises(SystemExit) as excinfo:
+        _run(module, monkeypatch, capsys, ["x"], until="2026-13-45")
+
+    assert excinfo.value.code == 2
+    assert _row(db_path, "x")["snooze_until"] is None

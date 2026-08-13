@@ -50,17 +50,25 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import sys
 from datetime import date, datetime, timezone
 
 DB_PATH = os.environ.get("ORDERS_DB_PATH", "/workspace/store/messages.db")
 
+# The canonical extended calendar date, the only shape this script writes
+# and the only one `compute-stuck-orders.py` honours. `date.fromisoformat`
+# additionally accepts the ISO basic form (`20260601`) and week form
+# (`2026-W40-1`) and would normalize either into a stored snooze, so the
+# shape is enforced before parsing rather than after.
+_CANONICAL_DATE = re.compile(r"\d{4}-\d{2}-\d{2}\Z")
+
 
 def _resolve_snooze_until() -> str:
     """Read and validate SNOOZE_UNTIL, or exit 2 with an actionable message.
 
-    Returns the normalized `YYYY-MM-DD` string to persist.
+    Returns the `YYYY-MM-DD` string to persist.
     """
     raw = os.environ.get("SNOOZE_UNTIL", "").strip()
     if not raw:
@@ -72,12 +80,21 @@ def _resolve_snooze_until() -> str:
             "python3 snooze-orders.py`.\n"
         )
         raise SystemExit(2)
+    if not _CANONICAL_DATE.match(raw):
+        sys.stderr.write(
+            f"snooze-orders: SNOOZE_UNTIL={raw!r} is not a YYYY-MM-DD date. "
+            f"The ISO basic (20260601) and week (2026-W40-1) forms are "
+            f"rejected on purpose — the stuck detector honours the canonical "
+            f"form alone. Use e.g. SNOOZE_UNTIL=2026-09-01.\n"
+        )
+        raise SystemExit(2)
     try:
         parsed = date.fromisoformat(raw)
     except ValueError:
+        # Right shape, impossible date (2026-13-45).
         sys.stderr.write(
-            f"snooze-orders: SNOOZE_UNTIL={raw!r} is not an ISO date. "
-            f"Use YYYY-MM-DD, e.g. SNOOZE_UNTIL=2026-09-01.\n"
+            f"snooze-orders: SNOOZE_UNTIL={raw!r} is not a real calendar "
+            f"date. Use e.g. SNOOZE_UNTIL=2026-09-01.\n"
         )
         raise SystemExit(2) from None
     if parsed <= date.today():

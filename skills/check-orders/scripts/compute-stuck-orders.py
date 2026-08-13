@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import sys
 from datetime import date
@@ -84,6 +85,13 @@ NEVER_SHIP_MERCHANTS = (
 # the description fallback in `_never_ships` so a known-shipping source
 # is never suppressed by description text alone.
 _UNCLASSIFIED_SOURCE = "other"
+
+# The canonical extended calendar date, the only shape `snooze-orders.py`
+# writes. `date.fromisoformat` additionally accepts the ISO basic form
+# (`20260601`) and week form (`2026-W40-1`), so the shape is enforced
+# before parsing — a noncanonical future value must not suppress an alert
+# the contract says only a well-formed marker can.
+_CANONICAL_DATE = re.compile(r"\d{4}-\d{2}-\d{2}\Z")
 
 
 def _aged_candidate(order_date) -> bool:
@@ -147,18 +155,24 @@ def _snooze_open(snooze_until) -> bool:
     than crashing the nightly run, since a bad marker must never suppress
     a real alert.
 
-    Parses the WHOLE stripped value, unlike `_aged_candidate`'s leading
-    10 characters. `order_date` legitimately carries a full ISO timestamp,
-    so slicing is right there; `snooze_until` is only ever written as a
-    bare `YYYY-MM-DD` by `snooze-orders.py`, so a slice here would let
-    `2026-09-01garbage` parse and silently suppress the order — the exact
-    outcome this function's contract promises malformed values cannot have.
+    Requires the WHOLE stripped value to match the canonical extended
+    date, unlike `_aged_candidate`'s leading 10 characters. `order_date`
+    legitimately carries a full ISO timestamp, so slicing is right there;
+    `snooze_until` is only ever written as a bare `YYYY-MM-DD` by
+    `snooze-orders.py`. A slice here would let `2026-09-01garbage` parse,
+    and `date.fromisoformat` alone would accept the ISO basic and week
+    forms — each silently suppressing the order, the exact outcome this
+    function's contract promises a malformed value cannot have.
     """
-    if not isinstance(snooze_until, str) or not snooze_until.strip():
+    if not isinstance(snooze_until, str):
+        return False
+    value = snooze_until.strip()
+    if not _CANONICAL_DATE.match(value):
         return False
     try:
-        parsed = date.fromisoformat(snooze_until.strip())
+        parsed = date.fromisoformat(value)
     except ValueError:
+        # Shape is right but the value is not a real date (2026-13-45).
         return False
     return date.today() < parsed
 

@@ -426,3 +426,48 @@ def test_timestamp_shaped_snooze_does_not_suppress(compute_stuck_orders, monkeyp
     )
     _code, payload = _run(module, monkeypatch, capsys)
     assert payload == {"stuck_ids": ["timestamped"]}
+
+
+def test_iso_basic_form_does_not_suppress(compute_stuck_orders, monkeypatch, capsys):
+    # `date.fromisoformat` accepts the ISO basic form, but the column's
+    # documented shape is the canonical extended date alone — a
+    # noncanonical future value must not hide a stuck order.
+    module, db_path = compute_stuck_orders
+    _insert(
+        db_path,
+        id="basic-form",
+        email_message_id="m-basic",
+        order_date=FORTY_FIVE_DAYS_AGO,
+        snooze_until="20260601",
+    )
+    _code, payload = _run(module, monkeypatch, capsys)
+    assert payload == {"stuck_ids": ["basic-form"]}
+
+
+def test_iso_week_form_does_not_suppress(compute_stuck_orders, monkeypatch, capsys):
+    module, db_path = compute_stuck_orders
+    _insert(
+        db_path,
+        id="week-form",
+        email_message_id="m-week",
+        order_date=FORTY_FIVE_DAYS_AGO,
+        snooze_until="2026-W40-1",
+    )
+    _code, payload = _run(module, monkeypatch, capsys)
+    assert payload == {"stuck_ids": ["week-form"]}
+
+
+def test_impossible_date_in_canonical_shape_does_not_suppress(
+    compute_stuck_orders, monkeypatch, capsys
+):
+    # Shape check passes, calendar check must still reject it.
+    module, db_path = compute_stuck_orders
+    _insert(
+        db_path,
+        id="impossible",
+        email_message_id="m-impossible",
+        order_date=FORTY_FIVE_DAYS_AGO,
+        snooze_until="2026-13-45",
+    )
+    _code, payload = _run(module, monkeypatch, capsys)
+    assert payload == {"stuck_ids": ["impossible"]}
