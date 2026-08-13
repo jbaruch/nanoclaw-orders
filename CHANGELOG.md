@@ -2,6 +2,15 @@
 
 All notable changes to this tile are documented here.
 
+### Fixed — `check-orders` stops flagging never-ship merchants and honours owner snoozes
+
+The two refinements left over from `jbaruch/nanoclaw-orders#61`, closing `#63`.
+
+- **Never-ship merchants.** Kickstarter and Indiegogo pledges, Patreon and Substack subscriptions never emit a shipment email, so "ordered with no shipment" is their steady state rather than an anomaly — yet they entered the stuck pool and flagged for the whole `[7, ceiling]` window until auto-resolve drained them. `compute-stuck-orders.py` now suppresses them from a curated `NEVER_SHIP_MERCHANTS` tuple, fully enumerable per `script-delegation`'s "Regex Trap" with no pattern-inference path. Matching mirrors `apply-exclusions.py`'s precedence: a populated `merchant` (from `state-017`) is authoritative and the description is not consulted, so an Amazon order whose description mentions a Kickstarter refund stays flaggable; only a NULL/blank merchant — a legacy row — falls through to a description substring match.
+- **Owner snoozes.** `ack-orders.py` answers "these arrived" by transitioning rows to `assumed_delivered`. It cannot answer the other half of the same owner reply — "this one truly not shipped, all the rest shipped and delivered" — because `assumed_delivered` would record a delivery that never happened, while leaving it `ordered` re-flags it nightly. New `snooze-orders.py` (ids on stdin, `SNOOZE_UNTIL` env) writes the `snooze_until` column from `jbaruch/nanoclaw#917` and touches nothing else, so the row keeps its honest `ordered` status while Step 8 drops it from `stuck_ids`. Suppression is `today < snooze_until`, so the boundary day itself re-flags. The writer rejects a missing, non-ISO, or non-future date with exit 2 rather than writing a no-op snooze the owner would believe had taken effect.
+
+Step 8's reader tolerates the column being absent per `stateful-artifacts` cross-pipeline reader discipline — on a database that has not applied `state-018` yet it reads "nothing is snoozed" and runs normally, so the tile need not ship in lock-step with the orchestrator. That path is covered against a real un-migrated table rather than a mock.
+
 ## 0.1.38 — 2026-08-13
 
 ### Fixed — `check-orders` drains the stuck-`ordered` "roach motel" and persists owner acks

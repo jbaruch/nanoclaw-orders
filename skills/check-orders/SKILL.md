@@ -129,6 +129,16 @@ Stdout: `{"excluded_ids": [...], "excluded_ids_csv": "...", "matched": <int>, "u
 
 **Ad-hoc tools (outside this flow):** `scripts/unflag-orders.py` clears the flag for a single run; the row keeps its status. To persist an owner acknowledgement that flagged orders arrived, use `scripts/ack-orders.py` (ids on stdin, one per line): it transitions `ordered`/`shipped` rows to `assumed_delivered` (Step 7's terminal status), which the stuck detector never re-flags. Stdout: `{"acked": <int>, "not_acked": <int>}`.
 
+When the owner acknowledges an order that is *genuinely still not shipped*, use `scripts/snooze-orders.py` instead — `ack-orders.py` would record a delivery that never happened. Ids on stdin, one per line; the ISO date the suppression runs until (exclusive) in `SNOOZE_UNTIL`:
+
+```bash
+SNOOZE_UNTIL=2026-09-01 printf '%s\n' <id1> <id2> | python3 scripts/snooze-orders.py
+```
+
+It writes `snooze_until` and leaves `status`, `flagged`, and `flag_reason` alone, so the row stays honestly `ordered` while Step 8 drops it from `stuck_ids` until the window lapses. Stdout: `{"snoozed": <int>, "not_snoozed": <int>, "snooze_until": "<date>"}`. The `SNOOZE_UNTIL` validation rules and eligible statuses are owned by the script (module docstring). Exits 2 on a missing, non-ISO, or non-future date.
+
+Pick by what actually happened: **arrived → `ack-orders.py`**, **still waiting → `snooze-orders.py`**. One owner reply can need both ("ack all, except Ragnar Armoury — this one truly not shipped").
+
 ## Step 7 — Auto-promote stale shipped/ordered orders
 
 Promote stale `shipped`/`ordered` rows to synthetic terminal `assumed_delivered`:
@@ -151,7 +161,9 @@ Get the ids of orders stuck in `ordered` with no shipment:
 python3 scripts/compute-stuck-orders.py
 ```
 
-Stdout: `{"stuck_ids": ["<id>", ...]}` — the ids of orders stuck in `ordered` with no shipment. The age window, shipment statuses, and pairing rule are owned by `scripts/compute-stuck-orders.py` (module docstring + top-of-file constants). Pass the `stuck_ids` verbatim to Step 9 as `STUCK_IDS`. Proceed immediately to Step 9.
+Stdout: `{"stuck_ids": ["<id>", ...]}` — the ids of orders stuck in `ordered` with no shipment. The age window, shipment statuses, pairing rule, never-ship merchant set, and snooze-window test are all owned by `scripts/compute-stuck-orders.py` (module docstring + top-of-file constants). Pass the `stuck_ids` verbatim to Step 9 as `STUCK_IDS`. Proceed immediately to Step 9.
+
+Two suppressions run inside the script and need no agent input: rows from merchants that never emit a shipment email, and rows carrying an unlapsed `snooze_until` (written by `scripts/snooze-orders.py`). The snooze column arrives with the orchestrator's `state-018` migration (`jbaruch/nanoclaw#917`); on a database that has not applied it yet the script reads "nothing is snoozed" and runs normally.
 
 ## Step 9 — Apply anomaly flagging
 

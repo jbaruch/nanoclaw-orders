@@ -16,18 +16,25 @@ def _load(name: str, relpath: str):
     return module
 
 
-def _seed_orders_db(db_path: str) -> None:
-    """Apply the state-001 + state-002 + state-003 + state-017 schema to a
-    fresh SQLite file. Mirrors the DDL the orchestrator's `state-001-orders`,
-    `state-002-email-feedback`, `state-003-email-feedback-schema-version`,
-    and `state-017-orders-merchant-order-number` migrations produce, so these
-    tests stay tied to the real schema rather than a divergent fixture shape.
+def _seed_orders_db(db_path: str, *, with_snooze_until: bool = True) -> None:
+    """Apply the state-001 + state-002 + state-003 + state-017 + state-018
+    schema to a fresh SQLite file. Mirrors the DDL the orchestrator's
+    `state-001-orders`, `state-002-email-feedback`,
+    `state-003-email-feedback-schema-version`,
+    `state-017-orders-merchant-order-number`, and
+    `state-018-orders-snooze-until` migrations produce, so these tests stay
+    tied to the real schema rather than a divergent fixture shape.
     The orders cluster shares the orchestrator's `messages.db` (mounted rw on
-    main/trusted) per jbaruch/nanoclaw container-runner."""
+    main/trusted) per jbaruch/nanoclaw container-runner.
+
+    `with_snooze_until=False` produces the pre-state-018 shape, so the
+    Step 8 reader's absent-column tolerance is exercised against a real
+    un-migrated table rather than a mock (`jbaruch/nanoclaw-orders#63`)."""
+    snooze_column = "snooze_until      TEXT," if with_snooze_until else ""
     conn = _sqlite3.connect(db_path)
     try:
         conn.executescript(
-            """
+            f"""
             CREATE TABLE orders (
               id                TEXT PRIMARY KEY,
               source            TEXT NOT NULL,
@@ -43,6 +50,7 @@ def _seed_orders_db(db_path: str) -> None:
               flag_reason       TEXT,
               last_updated      TEXT NOT NULL,
               merchant          TEXT,
+              {snooze_column}
               order_number      TEXT
             );
             CREATE INDEX idx_orders_source_status ON orders(source, status);
@@ -215,6 +223,38 @@ def compute_stuck_orders(tmp_path, monkeypatch):
     module = _load(
         "compute_stuck_orders_under_test",
         "skills/check-orders/scripts/compute-stuck-orders.py",
+    )
+    monkeypatch.setattr(module, "DB_PATH", str(db_path))
+    return module, db_path
+
+
+@pytest.fixture
+def compute_stuck_orders_legacy(tmp_path, monkeypatch):
+    """Load compute-stuck-orders.py against a pre-state-018 `orders` table.
+
+    The tile ships ahead of, or behind, the orchestrator's migrations, so
+    Step 8 must keep working on a database with no `snooze_until` column —
+    absent means "nothing is snoozed", never an error.
+    """
+    db_path = tmp_path / "messages.db"
+    _seed_orders_db(str(db_path), with_snooze_until=False)
+    module = _load(
+        "compute_stuck_orders_legacy_under_test",
+        "skills/check-orders/scripts/compute-stuck-orders.py",
+    )
+    monkeypatch.setattr(module, "DB_PATH", str(db_path))
+    return module, db_path
+
+
+@pytest.fixture
+def snooze_orders(tmp_path, monkeypatch):
+    """Load check-orders/scripts/snooze-orders.py with DB_PATH pointing
+    at a tmp_path-rooted seeded SQLite file."""
+    db_path = tmp_path / "messages.db"
+    _seed_orders_db(str(db_path))
+    module = _load(
+        "snooze_orders_under_test",
+        "skills/check-orders/scripts/snooze-orders.py",
     )
     monkeypatch.setattr(module, "DB_PATH", str(db_path))
     return module, db_path
