@@ -143,14 +143,21 @@ def _snooze_open(snooze_until) -> bool:
 
     Suppression holds while `today < snooze_until`, so the boundary day
     itself re-flags — a snooze "until 2026-09-01" is over ON 2026-09-01.
-    Type-guards the same way `_aged_candidate` does: a non-string or
-    malformed value is treated as "not snoozed" rather than crashing the
-    nightly run, since a bad marker must never suppress a real alert.
+    A non-string or malformed value is treated as "not snoozed" rather
+    than crashing the nightly run, since a bad marker must never suppress
+    a real alert.
+
+    Parses the WHOLE stripped value, unlike `_aged_candidate`'s leading
+    10 characters. `order_date` legitimately carries a full ISO timestamp,
+    so slicing is right there; `snooze_until` is only ever written as a
+    bare `YYYY-MM-DD` by `snooze-orders.py`, so a slice here would let
+    `2026-09-01garbage` parse and silently suppress the order — the exact
+    outcome this function's contract promises malformed values cannot have.
     """
     if not isinstance(snooze_until, str) or not snooze_until.strip():
         return False
     try:
-        parsed = date.fromisoformat(snooze_until.strip()[:10])
+        parsed = date.fromisoformat(snooze_until.strip())
     except ValueError:
         return False
     return date.today() < parsed

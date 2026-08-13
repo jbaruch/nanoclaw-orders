@@ -391,3 +391,38 @@ def test_runs_against_pre_state_018_schema(compute_stuck_orders_legacy, monkeypa
     code, payload = _run(module, monkeypatch, capsys)
     assert code == 0
     assert payload == {"stuck_ids": ["unmigrated"]}
+
+
+def test_iso_prefix_with_trailing_garbage_does_not_suppress(
+    compute_stuck_orders, monkeypatch, capsys
+):
+    # A leading-10-character slice would parse this as 2026-06-01 and
+    # suppress the order, contradicting the contract that a malformed
+    # marker cannot hide a real alert. `snooze_until` is only ever written
+    # as a bare YYYY-MM-DD, so the whole value must parse.
+    module, db_path = compute_stuck_orders
+    _insert(
+        db_path,
+        id="prefix-garbage",
+        email_message_id="m-prefix-garbage",
+        order_date=FORTY_FIVE_DAYS_AGO,
+        snooze_until="2026-06-01garbage",
+    )
+    code, payload = _run(module, monkeypatch, capsys)
+    assert code == 0
+    assert payload == {"stuck_ids": ["prefix-garbage"]}
+
+
+def test_timestamp_shaped_snooze_does_not_suppress(compute_stuck_orders, monkeypatch, capsys):
+    # Same rule from the other side: a full ISO timestamp is not the
+    # documented shape for this column, so it does not suppress either.
+    module, db_path = compute_stuck_orders
+    _insert(
+        db_path,
+        id="timestamped",
+        email_message_id="m-timestamped",
+        order_date=FORTY_FIVE_DAYS_AGO,
+        snooze_until="2026-06-01T00:00:00Z",
+    )
+    _code, payload = _run(module, monkeypatch, capsys)
+    assert payload == {"stuck_ids": ["timestamped"]}
