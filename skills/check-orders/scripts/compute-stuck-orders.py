@@ -28,7 +28,8 @@ Two further suppressions keep rows out of the pool (`#63`):
     age ceiling drains them. Matching mirrors `apply-exclusions.py`'s
     precedence: the persisted `merchant` column is authoritative when
     present, and only a NULL/blank `merchant` (legacy rows predating
-    `state-017`) falls through to a `description` substring match.
+    `state-017`) on an unclassified `source` falls through to a
+    `description` substring match.
   - **Open snooze window** (`snooze_until`, `jbaruch/nanoclaw#917`):
     an order the owner has acknowledged as *genuinely still not
     shipped*. `ack-orders.py`'s `assumed_delivered` transition would
@@ -78,6 +79,12 @@ NEVER_SHIP_MERCHANTS = (
     "substack",
 )
 
+# `classify-order.py`'s fallback source for a domain it does not map to
+# amazon / shopify / shop — where every never-ship merchant lands. Gates
+# the description fallback in `_never_ships` so a known-shipping source
+# is never suppressed by description text alone.
+_UNCLASSIFIED_SOURCE = "other"
+
 
 def _aged_candidate(order_date) -> bool:
     """True iff order_date parses as ISO date AND falls in the stuck window.
@@ -104,7 +111,7 @@ def _order_key(source, order_number):
     return None
 
 
-def _never_ships(merchant, description) -> bool:
+def _never_ships(source, merchant, description) -> bool:
     """True iff the row belongs to a merchant that never emits a shipment
     email, so "ordered with no shipment" is its steady state.
 
@@ -112,13 +119,20 @@ def _never_ships(merchant, description) -> bool:
     authoritative and the description is NOT consulted, so a row whose
     merchant is known-shipping stays eligible even if its description
     happens to mention a never-ship name ("bought on Amazon with my
-    Kickstarter refund"). Only a NULL/blank merchant — a legacy row
-    predating `state-017` — falls through to the description.
+    Kickstarter refund").
+
+    A NULL/blank `merchant` — a legacy row predating `state-017` — falls
+    through to the description, but only for `source = 'other'`. Every
+    never-ship merchant classifies there (`classify-order.py` maps only
+    amazon / shopify / shop domains to their own source), so a row from a
+    known-shipping source can never be suppressed by description text
+    alone. Without that gate a NULL-merchant Amazon row whose description
+    mentions a pledge would drop out of the pool silently.
     """
     if isinstance(merchant, str) and merchant.strip():
         lowered = merchant.lower()
         return any(name in lowered for name in NEVER_SHIP_MERCHANTS)
-    if isinstance(description, str):
+    if source == _UNCLASSIFIED_SOURCE and isinstance(description, str):
         lowered = description.lower()
         return any(name in lowered for name in NEVER_SHIP_MERCHANTS)
     return False
@@ -180,7 +194,7 @@ def main() -> int:
         for row in rows:
             if row["status"] != "ordered" or not _aged_candidate(row["order_date"]):
                 continue
-            if _never_ships(row["merchant"], row["description"]):
+            if _never_ships(row["source"], row["merchant"], row["description"]):
                 continue
             if _snooze_open(row["snooze_until"]):
                 continue

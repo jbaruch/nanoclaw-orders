@@ -12,7 +12,10 @@ literals relative to it — no dependence on the run date.
 
 import io
 import json
+import os
+import pathlib
 import sqlite3
+import subprocess
 from datetime import date
 
 import pytest
@@ -272,3 +275,49 @@ def test_rejects_before_reading_stdin(snooze_orders, monkeypatch, capsys):
         module.main()
 
     assert stdin.tell() == 0
+
+
+# --- The documented invocation actually works (#64 review) -------------
+
+SCRIPT = (
+    pathlib.Path(__file__).resolve().parents[1] / "skills/check-orders/scripts/snooze-orders.py"
+)
+
+
+def _shell(command, db_path):
+    """Run a real shell pipeline against the fixture DB, returning stderr."""
+    return subprocess.run(
+        command,
+        shell=True,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "ORDERS_DB_PATH": str(db_path)},
+    )
+
+
+def test_documented_pipeline_delivers_the_env_var(snooze_orders):
+    # `VAR=x cmd1 | cmd2` assigns only to cmd1, so an invocation that put
+    # SNOOZE_UNTIL before `printf` would leave the script seeing nothing
+    # and exiting 2 — the shape the SKILL documented before #64's review.
+    #
+    # A deliberately PAST date keeps this deterministic: it never reaches
+    # the database, and the two exit-2 messages are distinguishable, so
+    # "the variable arrived" is provable without a future literal.
+    _module, db_path = snooze_orders
+
+    result = _shell(f"printf '%s\\n' some-id | SNOOZE_UNTIL={PAST} python3 {SCRIPT}", db_path)
+
+    assert result.returncode == 2
+    assert "is not in the future" in result.stderr
+    assert "SNOOZE_UNTIL is required" not in result.stderr
+
+
+def test_assignment_before_the_pipe_does_not_reach_the_script(snooze_orders):
+    # Pins the failure mode itself, so the documented form cannot silently
+    # regress back to it.
+    _module, db_path = snooze_orders
+
+    result = _shell(f"SNOOZE_UNTIL={PAST} printf '%s\\n' some-id | python3 {SCRIPT}", db_path)
+
+    assert result.returncode == 2
+    assert "SNOOZE_UNTIL is required" in result.stderr

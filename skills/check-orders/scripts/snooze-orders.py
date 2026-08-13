@@ -26,7 +26,9 @@ Inputs:
     runs until, exclusive — `compute-stuck-orders.py` re-flags ON that
     date. Must parse as an ISO date and be strictly in the future; a past
     or same-day value is rejected rather than written as a no-op snooze
-    the owner would believe had taken effect.
+    the owner would believe had taken effect. Assign it to the python3
+    process, not to a command earlier in the pipeline:
+    `printf '%s\\n' <id> | SNOOZE_UNTIL=<YYYY-MM-DD> python3 snooze-orders.py`
 
 Stdout on success: `{"snoozed": <int>, "not_snoozed": <int>,
 "snooze_until": "<date>"}`. `snoozed` counts ids whose row was eligible and
@@ -64,8 +66,9 @@ def _resolve_snooze_until() -> str:
     if not raw:
         sys.stderr.write(
             "snooze-orders: SNOOZE_UNTIL is required. Set it to the ISO date "
-            "the snooze runs until (exclusive), e.g. "
-            "`SNOOZE_UNTIL=2026-09-01 printf '%s\\n' <id> | "
+            "the snooze runs until (exclusive), assigning it to the python3 "
+            "process so it survives the pipe, e.g. "
+            "`printf '%s\\n' <id> | SNOOZE_UNTIL=<YYYY-MM-DD> "
             "python3 snooze-orders.py`.\n"
         )
         raise SystemExit(2)

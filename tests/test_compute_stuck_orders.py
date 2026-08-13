@@ -256,15 +256,56 @@ def test_populated_merchant_beats_description_mention(compute_stuck_orders, monk
 
 
 def test_null_merchant_falls_back_to_description(compute_stuck_orders, monkeypatch, capsys):
-    # Legacy rows predating state-017 have no merchant; the description is
-    # the only signal available for them.
+    # Legacy rows predating state-017 have no merchant; on an unclassified
+    # source the description is the only signal available for them.
     module, db_path = compute_stuck_orders
     _insert(
         db_path,
         id="legacy-ks",
         email_message_id="m-legacy-ks",
+        source="other",
         merchant=None,
         description="Indiegogo campaign — solar lamp",
+        order_date=FORTY_FIVE_DAYS_AGO,
+    )
+    _code, payload = _run(module, monkeypatch, capsys)
+    assert payload == {"stuck_ids": []}
+
+
+def test_known_shipping_source_ignores_the_description_fallback(
+    compute_stuck_orders, monkeypatch, capsys
+):
+    # An amazon row can legitimately carry merchant=NULL. Without gating
+    # the fallback to the unclassified source, a description merely
+    # mentioning a pledge would drop a real stuck order out of the pool.
+    module, db_path = compute_stuck_orders
+    _insert(
+        db_path,
+        id="amz-null-merchant",
+        email_message_id="m-amz-null",
+        source="amazon",
+        merchant=None,
+        description="Keyboard bought with my Kickstarter refund",
+        order_date=FORTY_FIVE_DAYS_AGO,
+    )
+    _code, payload = _run(module, monkeypatch, capsys)
+    assert payload == {"stuck_ids": ["amz-null-merchant"]}
+
+
+def test_populated_never_ship_merchant_wins_on_any_source(
+    compute_stuck_orders, monkeypatch, capsys
+):
+    # The source gate covers only the description fallback. A row whose
+    # merchant column actually says Kickstarter is suppressed wherever it
+    # classified.
+    module, db_path = compute_stuck_orders
+    _insert(
+        db_path,
+        id="shopify-ks",
+        email_message_id="m-shopify-ks",
+        source="shopify",
+        merchant="Kickstarter",
+        description="Pledge fulfilment",
         order_date=FORTY_FIVE_DAYS_AGO,
     )
     _code, payload = _run(module, monkeypatch, capsys)
