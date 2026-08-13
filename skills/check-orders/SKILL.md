@@ -178,6 +178,8 @@ Empty `EXCLUDED_IDS` and empty `STUCK_IDS` are both fine. Stdout: `{"flagged": <
 
 Which statuses flag and the per-status age cutoffs are owned by `scripts/flag-anomalies.py` — its module-docstring rule table and `_classify()` are the single source of truth. The stuck-order signal is applied from `STUCK_IDS` verbatim; the script never re-derives it.
 
+A row with an unlapsed `snooze_until` is suppressed here for every rule, not just the stuck one, and is unflagged if it was already flagged. Step 8's suppression covers only `ordered` rows reached by the stuck rule, so this pass is what makes a snooze hold for an overdue `expected_delivery` and for `shipped` rows.
+
 Flow effects: each matching row gets `flagged=1` plus a `flag_reason`; rows past their cutoff (or that no longer match) are unflagged in the same pass; rows that never matched stay unflagged. The `ids_flagged` list drives the Step 11 report.
 
 ## Step 10 — Re-stamp orders_metadata (success-path refresh)

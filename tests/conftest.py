@@ -229,6 +229,34 @@ def compute_stuck_orders(tmp_path, monkeypatch):
 
 
 @pytest.fixture
+def snooze_pipeline(tmp_path, monkeypatch):
+    """Load the three snooze-path scripts against ONE shared database.
+
+    The snooze contract spans them — `snooze-orders.py` writes the marker,
+    `compute-stuck-orders.py` drops the row from `stuck_ids`, and
+    `flag-anomalies.py` suppresses every rule for it — so the user-visible
+    outcome ("the order stops alerting") is only assertable end to end
+    (`jbaruch/nanoclaw-orders#63` review). Returns
+    (snooze, stuck, flag, db_path).
+    """
+    db_path = tmp_path / "messages.db"
+    _seed_orders_db(str(db_path))
+    modules = []
+    for name, relpath in (
+        ("snooze_orders_pipeline", "skills/check-orders/scripts/snooze-orders.py"),
+        (
+            "compute_stuck_orders_pipeline",
+            "skills/check-orders/scripts/compute-stuck-orders.py",
+        ),
+        ("flag_anomalies_pipeline", "skills/check-orders/scripts/flag-anomalies.py"),
+    ):
+        module = _load(name, relpath)
+        monkeypatch.setattr(module, "DB_PATH", str(db_path))
+        modules.append(module)
+    return (*modules, db_path)
+
+
+@pytest.fixture
 def compute_stuck_orders_legacy(tmp_path, monkeypatch):
     """Load compute-stuck-orders.py against a pre-state-018 `orders` table.
 

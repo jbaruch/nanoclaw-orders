@@ -10,10 +10,17 @@ that row `assumed_delivered` records a delivery that never happened;
 leaving it `ordered` re-flags it every night.
 
 This script writes `snooze_until` instead, so the row keeps its honest
-`status = 'ordered'` while `compute-stuck-orders.py` (Step 8) drops it from
-`stuck_ids` until the window lapses. Status, `flagged`, and `flag_reason`
-are deliberately left alone: a snooze says "stop asking", not "this is
-resolved".
+`status = 'ordered'` while the nightly run stops reporting it. Status,
+`flagged`, and `flag_reason` are deliberately left alone: a snooze says
+"stop asking", not "this is resolved".
+
+Two readers honour the marker while the window is open:
+`compute-stuck-orders.py` (Step 8) drops the row from `stuck_ids`, and
+`flag-anomalies.py` (Step 9) suppresses EVERY anomaly rule for it and
+unflags it if already flagged. Step 9's half is what makes a snooze hold
+for the rows Step 8 never reaches — an `ordered` row whose overdue
+`expected_delivery` fires the higher-priority rule, and the `shipped`
+rows this script accepts.
 
 Only `ordered`/`shipped` rows are eligible — snoozing is meaningful only
 for a live, in-flight order. A `cancelled`/`refunded`/already-terminal row
