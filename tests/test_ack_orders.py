@@ -160,6 +160,21 @@ def test_empty_stdin_is_noop(ack_orders, monkeypatch, capsys):
     assert json.loads(out) == {"acked": 0, "not_acked": 0}
 
 
+class _RaisingStdin:
+    def read(self):
+        raise OSError("stdin gone")
+
+
+def test_stdin_read_failure_exits_one_with_diagnostic(ack_orders, monkeypatch, capsys):
+    module, _db_path = ack_orders
+    monkeypatch.setattr("sys.stdin", _RaisingStdin())
+    monkeypatch.setattr(module, "datetime", _FrozenDatetime)
+    code = module.main()
+    err = capsys.readouterr().err
+    assert code == 1
+    assert "failed to read order ids from stdin" in err
+
+
 def test_missing_table_exits_one(ack_orders, monkeypatch, capsys):
     module, db_path = ack_orders
     conn = sqlite3.connect(str(db_path))

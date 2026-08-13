@@ -44,7 +44,15 @@ DB_PATH = os.environ.get("ORDERS_DB_PATH", "/workspace/store/messages.db")
 
 
 def main() -> int:
-    raw = sys.stdin.read()
+    try:
+        raw = sys.stdin.read()
+    except OSError as exc:
+        sys.stderr.write(
+            f"ack-orders: failed to read order ids from stdin: {exc}. "
+            f"Pipe the ids to ack, one per line, e.g. "
+            f"`printf '%s\\n' <id1> <id2> | python3 ack-orders.py`.\n"
+        )
+        return 1
     ids = [line.strip() for line in raw.splitlines() if line.strip()]
     if not ids:
         # No ids to ack — degenerate but legal.
