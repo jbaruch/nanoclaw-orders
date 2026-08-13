@@ -2,6 +2,8 @@
 
 All notable changes to this tile are documented here.
 
+## 0.1.38 — 2026-08-13
+
 ### Fixed — `check-orders` drains the stuck-`ordered` "roach motel" and persists owner acks
 
 The nightly stuck-order alert re-dumped the whole `ordered` backlog every run, including orders the owner had already acknowledged as delivered (`jbaruch/nanoclaw-orders#61`). Two root causes, both fixed here without a schema change:
