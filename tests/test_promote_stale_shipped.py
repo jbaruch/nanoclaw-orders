@@ -30,6 +30,9 @@ FIFTEEN_DAYS_AGO_DATE = "2026-04-15"
 THREE_DAYS_AGO_DATE = "2026-04-27"
 FIFTEEN_DAYS_AGO_DT = "2026-04-15T12:00:00+00:00"
 TWO_DAYS_AGO_DT = "2026-04-28T12:00:00+00:00"
+# Age-ceiling path (`#61`), STALE_ORDERED_CEILING_DAYS = 90, strict `>`:
+NINETY_DAYS_AGO_DATE = "2026-01-30"  # delta == 90, NOT past the ceiling
+NINETY_ONE_DAYS_AGO_DATE = "2026-01-29"  # delta == 91, past the ceiling
 
 
 class _FrozenDate(date):
@@ -231,6 +234,110 @@ def test_handles_null_last_updated_without_attribute_error(
     assert code == 0
     assert json.loads(out)["promoted"] == 0
     assert "non-string last_updated" in err
+
+
+def test_aged_ordered_row_resolves_on_order_date_alone(promote_stale_shipped, monkeypatch, capsys):
+    """Age-ceiling path (`#61`): an `ordered` row past the ceiling with a
+    NULL expected_delivery — the never-matched shipment case — resolves to
+    assumed_delivered even though the expected-delivery path can't touch
+    it, and even though last_updated is fresh (age path ignores it)."""
+    module, db_path = promote_stale_shipped
+    _insert(
+        db_path,
+        id="stuck",
+        email_message_id="m-stuck",
+        status="ordered",
+        order_date=NINETY_ONE_DAYS_AGO_DATE,
+        expected_delivery=None,
+        last_updated=FROZEN_NOW.isoformat(),
+    )
+    code, out, _err = _run(module, monkeypatch, capsys)
+    assert code == 0
+    assert json.loads(out) == {"promoted": 1, "ids": ["stuck"]}
+    assert _status(db_path, "stuck") == "assumed_delivered"
+
+
+def test_ordered_at_ceiling_is_not_yet_aged_out(promote_stale_shipped, monkeypatch, capsys):
+    """Strict `>` boundary: exactly STALE_ORDERED_CEILING_DAYS old stays
+    in the stuck window (still a live signal), not resolved."""
+    module, db_path = promote_stale_shipped
+    _insert(
+        db_path,
+        id="edge",
+        email_message_id="m-edge",
+        status="ordered",
+        order_date=NINETY_DAYS_AGO_DATE,
+        expected_delivery=None,
+        last_updated=FROZEN_NOW.isoformat(),
+    )
+    code, out, _err = _run(module, monkeypatch, capsys)
+    assert code == 0
+    assert json.loads(out) == {"promoted": 0, "ids": []}
+    assert _status(db_path, "edge") == "ordered"
+
+
+def test_aged_shipped_row_is_not_resolved_by_age_path(promote_stale_shipped, monkeypatch, capsys):
+    """The age path is `ordered`-only: an old `shipped` row with NULL
+    expected_delivery is left for the expected-delivery path (which can't
+    fire on NULL), not swept up on age."""
+    module, db_path = promote_stale_shipped
+    _insert(
+        db_path,
+        id="ship-old",
+        email_message_id="m-ship-old",
+        status="shipped",
+        order_date=NINETY_ONE_DAYS_AGO_DATE,
+        expected_delivery=None,
+        last_updated=FROZEN_NOW.isoformat(),
+    )
+    code, out, _err = _run(module, monkeypatch, capsys)
+    assert code == 0
+    assert json.loads(out) == {"promoted": 0, "ids": []}
+    assert _status(db_path, "ship-old") == "shipped"
+
+
+def test_recent_ordered_without_expected_delivery_is_left_as_signal(
+    promote_stale_shipped, monkeypatch, capsys
+):
+    """A recent `ordered` row with NULL expected_delivery is the genuine
+    stuck signal — neither path resolves it, so it stays `ordered` for the
+    stuck detector to flag."""
+    module, db_path = promote_stale_shipped
+    _insert(
+        db_path,
+        id="recent",
+        email_message_id="m-recent",
+        status="ordered",
+        order_date=FIFTEEN_DAYS_AGO_DATE,
+        expected_delivery=None,
+        last_updated=FIFTEEN_DAYS_AGO_DT,
+    )
+    code, out, _err = _run(module, monkeypatch, capsys)
+    assert code == 0
+    assert json.loads(out) == {"promoted": 0, "ids": []}
+    assert _status(db_path, "recent") == "ordered"
+
+
+def test_aged_ordered_with_malformed_order_date_is_skipped(
+    promote_stale_shipped, monkeypatch, capsys
+):
+    """A non-ISO order_date can't be aged — the row is skipped by the age
+    path (and by the expected-delivery path when expected_delivery is
+    NULL), not crashed on."""
+    module, db_path = promote_stale_shipped
+    _insert(
+        db_path,
+        id="bad-date",
+        email_message_id="m-bad-date",
+        status="ordered",
+        order_date="sometime",
+        expected_delivery=None,
+        last_updated=FROZEN_NOW.isoformat(),
+    )
+    code, out, _err = _run(module, monkeypatch, capsys)
+    assert code == 0
+    assert json.loads(out) == {"promoted": 0, "ids": []}
+    assert _status(db_path, "bad-date") == "ordered"
 
 
 def test_no_op_when_table_is_empty(promote_stale_shipped, monkeypatch, capsys):

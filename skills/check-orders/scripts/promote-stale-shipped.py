@@ -6,12 +6,33 @@ never send a delivered email — the order arrives but the status in
 the orders table stays `shipped` forever and Step 9's "Overdue
 delivery" rule keeps firing for the full 30-day cutoff.
 
-Eligibility (all three must hold):
+A row is promoted if it matches EITHER eligibility path below.
+
+Expected-delivery path (all three must hold):
   - status IN ('shipped', 'ordered') — only non-terminal statuses
   - expected_delivery NOT NULL AND parses as ISO date AND >= 10 days
     before today (real overdue, not slow shipping)
   - last_updated >= 10 days before now (no fresh email about this
     order in >= 10 days)
+
+Age-ceiling path (`jbaruch/nanoclaw-orders#61`, both must hold):
+  - status = 'ordered'
+  - order_date parses as ISO date AND > STALE_ORDERED_CEILING_DAYS
+    before today
+
+The age-ceiling path drains the `ordered` "roach motel": an order
+whose shipment/delivery email never matched (merchant mismatch, no
+tracking email, digital/subscription/Kickstarter/autoship) has a NULL
+`expected_delivery`, so the expected-delivery path never catches it and
+it sits in `ordered` forever — re-flagged by the stuck detector every
+run inside its window. Past the ceiling the order has long since arrived
+or died; `assumed_delivered` is the honest terminal state. The ceiling
+is aligned with `compute-stuck-orders.py`'s STUCK_ORDER_MAX_DAYS (its
+stuck window's upper bound), so a row ages out of "stuck" flagging and
+into a resolved status in the same pass rather than lingering silently.
+Unlike the expected-delivery path this ignores `last_updated` — a
+never-matched order gets no fresh emails, so its `last_updated` is its
+ingestion time and staleness is already implied by the order_date age.
 
 `expected_delivery` is sometimes a free-text string like "overnight"
 rather than an ISO date. Per the original within-days.py contract, a
@@ -41,6 +62,12 @@ from datetime import date, datetime, timezone
 DB_PATH = os.environ.get("ORDERS_DB_PATH", "/workspace/store/messages.db")
 DAYS_THRESHOLD = 10
 
+# Age past which an `ordered` row auto-resolves to assumed_delivered on
+# order_date alone (`#61`). Aligned with compute-stuck-orders.py's
+# STUCK_ORDER_MAX_DAYS — the stuck window's upper bound — so a row leaves
+# the stuck pool and lands in a resolved status in the same pass.
+STALE_ORDERED_CEILING_DAYS = 90
+
 
 def _expected_delivery_eligible(value) -> bool:
     """True when the value should count as overdue per Step 7.
@@ -67,6 +94,31 @@ def _expected_delivery_eligible(value) -> bool:
         # gate, so this isn't a blanket promotion.
         return True
     return (date.today() - parsed).days >= DAYS_THRESHOLD
+
+
+def _aged_ordered_ceiling(status, order_date) -> bool:
+    """True when an `ordered` row is past STALE_ORDERED_CEILING_DAYS.
+
+    The age-ceiling promotion path (`#61`): resolves an order that never
+    matched a shipment/delivery email (so its expected_delivery is NULL
+    and the expected-delivery path never fires) once it is old enough
+    that it has certainly arrived or died. Only `ordered` rows qualify —
+    a `shipped` row goes through the expected-delivery path or waits.
+
+    Type-guards against SQLite's permissiveness (same rationale as
+    `_expected_delivery_eligible`): a non-string or malformed order_date
+    is ineligible rather than a crash — the row is left for a later pass
+    once its data is sane.
+    """
+    if status != "ordered":
+        return False
+    if not isinstance(order_date, str) or not order_date.strip():
+        return False
+    try:
+        parsed = date.fromisoformat(order_date.strip()[:10])
+    except ValueError:
+        return False
+    return (date.today() - parsed).days > STALE_ORDERED_CEILING_DAYS
 
 
 def _last_updated_eligible(value, order_id: str) -> bool:
@@ -115,17 +167,22 @@ def main() -> int:
         conn = sqlite3.connect(DB_PATH)
         cur = conn.execute(
             """
-            SELECT id, expected_delivery, last_updated
+            SELECT id, status, order_date, expected_delivery, last_updated
               FROM orders
              WHERE status IN ('shipped', 'ordered')
             """,
         )
         candidates = cur.fetchall()
-        for order_id, expected_delivery, last_updated in candidates:
-            if not _expected_delivery_eligible(expected_delivery):
-                continue
-            if not _last_updated_eligible(last_updated, order_id):
-                continue
+        for order_id, status, order_date, expected_delivery, last_updated in candidates:
+            # Age-ceiling path first — it stands on order_date alone and
+            # does not consult last_updated, so a never-matched order with
+            # no fresh emails still resolves.
+            aged_out = _aged_ordered_ceiling(status, order_date)
+            if not aged_out:
+                if not _expected_delivery_eligible(expected_delivery):
+                    continue
+                if not _last_updated_eligible(last_updated, order_id):
+                    continue
             conn.execute(
                 """
                 UPDATE orders
