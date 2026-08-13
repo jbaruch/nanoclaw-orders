@@ -2,6 +2,15 @@
 
 All notable changes to this tile are documented here.
 
+### Fixed — `check-orders` drains the stuck-`ordered` "roach motel" and persists owner acks
+
+The nightly stuck-order alert re-dumped the whole `ordered` backlog every run, including orders the owner had already acknowledged as delivered (`jbaruch/nanoclaw-orders#61`). Two root causes, both fixed here without a schema change:
+
+- **No auto-resolve.** An order whose shipment/delivery email never matched (merchant mismatch, no tracking email, digital/subscription/Kickstarter/autoship) kept a NULL `expected_delivery`, so `promote-stale-shipped.py` (Step 7) never touched it and it sat in `ordered` forever. Step 7 now has a second promotion path: an `ordered` row past an age ceiling (aligned with `compute-stuck-orders.py`'s stuck-window upper bound) auto-resolves to `assumed_delivered` on `order_date` alone — leaving the stuck pool instead of re-flagging every run. Recent `ordered` rows stay put as the genuine "placed weeks ago, never shipped" signal.
+- **No ack memory.** `unflag-orders.py` only clears the flag for one run; the row stays `ordered` and resurfaces next night. New `ack-orders.py` (ids on stdin) persists an owner acknowledgement by transitioning `ordered`/`shipped` rows to the terminal `assumed_delivered`, so an acked order never re-flags. Terminal rows (cancelled/refunded/already-delivered) are left untouched. The SKILL's Step 6 note now points owner acks at this tool instead of `unflag-orders.py`.
+
+The remaining refinement — acknowledging a *genuinely*-stuck order without mislabeling it delivered (a snooze marker the detector reads) — needs a new `orders` column and is tracked upstream at `jbaruch/nanoclaw#917`.
+
 ## 0.1.37 — 2026-08-09
 
 ### Changed — `check-orders` dedups by the persisted `order_number`

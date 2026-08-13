@@ -235,6 +235,20 @@ def promote_stale_shipped(tmp_path, monkeypatch):
 
 
 @pytest.fixture
+def ack_orders(tmp_path, monkeypatch):
+    """Load check-orders/scripts/ack-orders.py with DB_PATH pointing
+    at a tmp_path-rooted seeded SQLite file."""
+    db_path = tmp_path / "messages.db"
+    _seed_orders_db(str(db_path))
+    module = _load(
+        "ack_orders_under_test",
+        "skills/check-orders/scripts/ack-orders.py",
+    )
+    monkeypatch.setattr(module, "DB_PATH", str(db_path))
+    return module, db_path
+
+
+@pytest.fixture
 def read_last_checked(tmp_path, monkeypatch):
     """Load check-orders/scripts/read-last-checked.py with DB_PATH pointing
     at a tmp_path-rooted seeded SQLite file."""
