@@ -11,7 +11,7 @@ never move with the run date.
 
 import json
 import sqlite3
-from datetime import date
+from datetime import date, timedelta
 
 FROZEN_TODAY = date(2026, 4, 30)
 
@@ -21,6 +21,20 @@ SEVEN_DAYS_AGO = "2026-04-23"  # exactly at the inclusive min boundary
 FORTY_FIVE_DAYS_AGO = "2026-03-16"  # in window
 HUNDRED_DAYS_AGO = "2026-01-20"  # past max window (> 90d) — aged out
 
+# Snooze markers, derived from the frozen reference rather than written
+# as literals: a hardcoded future date rots as the run date advances,
+# and deriving keeps these correct if FROZEN_TODAY ever moves
+# (`coding-policy: testing-standards` Determinism).
+SNOOZE_OPEN = (FROZEN_TODAY + timedelta(days=32)).isoformat()
+SNOOZE_LAPSED = (FROZEN_TODAY - timedelta(days=29)).isoformat()
+
+# The same open-window instant in forms `date.fromisoformat` accepts but
+# the column's contract does not, so each proves a NONCANONICAL FUTURE
+# value still fails to suppress.
+SNOOZE_OPEN_BASIC = SNOOZE_OPEN.replace("-", "")
+_OPEN_ISO_WEEK = (FROZEN_TODAY + timedelta(days=32)).isocalendar()
+SNOOZE_OPEN_WEEK = f"{_OPEN_ISO_WEEK.year}-W{_OPEN_ISO_WEEK.week:02d}-{_OPEN_ISO_WEEK.weekday}"
+
 
 class _FrozenDate(date):
     @classmethod
@@ -28,7 +42,15 @@ class _FrozenDate(date):
         return FROZEN_TODAY
 
 
-def _insert(db_path, **fields):
+def _insert(db_path, *, snooze_column=True, **fields):
+    """Insert one orders row, defaulting every column the tests don't set.
+
+    Columns are derived from the dict rather than a hand-maintained literal
+    list, so adding a default needs no parallel edit to the SQL.
+    `snooze_column=False` targets the pre-state-018 table the
+    `compute_stuck_orders_legacy` fixture builds, which has no
+    `snooze_until` column to insert into.
+    """
     defaults = {
         "id": "ord-1",
         "source": "amazon",
@@ -43,16 +65,18 @@ def _insert(db_path, **fields):
         "flagged": 0,
         "flag_reason": None,
         "last_updated": "2026-04-01T00:00:00Z",
+        "merchant": None,
         "order_number": None,
     }
+    if snooze_column:
+        defaults["snooze_until"] = None
     defaults.update(fields)
+    columns = ", ".join(defaults)
+    placeholders = ", ".join("?" * len(defaults))
     conn = sqlite3.connect(str(db_path))
     try:
         conn.execute(
-            "INSERT INTO orders (id, source, status, amount, currency, description, "
-            "order_date, expected_delivery, email_message_id, to_address, flagged, "
-            "flag_reason, last_updated, order_number) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            f"INSERT INTO orders ({columns}) VALUES ({placeholders})",
             tuple(defaults.values()),
         )
         conn.commit()
@@ -178,3 +202,286 @@ def test_stuck_ids_sorted_ascending(compute_stuck_orders, monkeypatch, capsys):
     _insert(db_path, id="alpha", email_message_id="m-a", order_date=FORTY_FIVE_DAYS_AGO)
     _code, payload = _run(module, monkeypatch, capsys)
     assert payload == {"stuck_ids": ["alpha", "zeta"]}
+
+
+# --- Never-ship merchants (#63) ---------------------------------------
+
+
+def test_never_ship_merchant_is_not_stuck(compute_stuck_orders, monkeypatch, capsys):
+    # A Kickstarter pledge never emits a shipment email, so "ordered with
+    # no shipment" is its steady state — not an anomaly worth an alert.
+    module, db_path = compute_stuck_orders
+    _insert(
+        db_path,
+        id="ks",
+        email_message_id="m-ks",
+        merchant="Kickstarter",
+        description="Pledge: mechanical keyboard",
+        order_date=FORTY_FIVE_DAYS_AGO,
+    )
+    code, payload = _run(module, monkeypatch, capsys)
+    assert code == 0
+    assert payload == {"stuck_ids": []}
+
+
+def test_never_ship_match_is_case_insensitive(compute_stuck_orders, monkeypatch, capsys):
+    module, db_path = compute_stuck_orders
+    _insert(
+        db_path,
+        id="pat",
+        email_message_id="m-pat",
+        merchant="PATREON MEMBERSHIP",
+        order_date=FORTY_FIVE_DAYS_AGO,
+    )
+    _code, payload = _run(module, monkeypatch, capsys)
+    assert payload == {"stuck_ids": []}
+
+
+def test_shipping_merchant_stays_stuck(compute_stuck_orders, monkeypatch, capsys):
+    # Guards the suppression against over-reach: a normal merchant is
+    # unaffected by the never-ship set.
+    module, db_path = compute_stuck_orders
+    _insert(
+        db_path,
+        id="pacagen",
+        email_message_id="m-pac",
+        merchant="Pacagen",
+        order_date=FORTY_FIVE_DAYS_AGO,
+    )
+    _code, payload = _run(module, monkeypatch, capsys)
+    assert payload == {"stuck_ids": ["pacagen"]}
+
+
+def test_populated_merchant_beats_description_mention(compute_stuck_orders, monkeypatch, capsys):
+    # Precedence mirrors apply-exclusions.py: a populated merchant is
+    # authoritative, so a description that merely name-drops a never-ship
+    # merchant cannot suppress a real Amazon order.
+    module, db_path = compute_stuck_orders
+    _insert(
+        db_path,
+        id="amz",
+        email_message_id="m-amz",
+        merchant="Amazon",
+        description="Keyboard bought with my Kickstarter refund",
+        order_date=FORTY_FIVE_DAYS_AGO,
+    )
+    _code, payload = _run(module, monkeypatch, capsys)
+    assert payload == {"stuck_ids": ["amz"]}
+
+
+def test_null_merchant_falls_back_to_description(compute_stuck_orders, monkeypatch, capsys):
+    # Legacy rows predating state-017 have no merchant; on an unclassified
+    # source the description is the only signal available for them.
+    module, db_path = compute_stuck_orders
+    _insert(
+        db_path,
+        id="legacy-ks",
+        email_message_id="m-legacy-ks",
+        source="other",
+        merchant=None,
+        description="Indiegogo campaign — solar lamp",
+        order_date=FORTY_FIVE_DAYS_AGO,
+    )
+    _code, payload = _run(module, monkeypatch, capsys)
+    assert payload == {"stuck_ids": []}
+
+
+def test_known_shipping_source_ignores_the_description_fallback(
+    compute_stuck_orders, monkeypatch, capsys
+):
+    # An amazon row can legitimately carry merchant=NULL. Without gating
+    # the fallback to the unclassified source, a description merely
+    # mentioning a pledge would drop a real stuck order out of the pool.
+    module, db_path = compute_stuck_orders
+    _insert(
+        db_path,
+        id="amz-null-merchant",
+        email_message_id="m-amz-null",
+        source="amazon",
+        merchant=None,
+        description="Keyboard bought with my Kickstarter refund",
+        order_date=FORTY_FIVE_DAYS_AGO,
+    )
+    _code, payload = _run(module, monkeypatch, capsys)
+    assert payload == {"stuck_ids": ["amz-null-merchant"]}
+
+
+def test_populated_never_ship_merchant_wins_on_any_source(
+    compute_stuck_orders, monkeypatch, capsys
+):
+    # The source gate covers only the description fallback. A row whose
+    # merchant column actually says Kickstarter is suppressed wherever it
+    # classified.
+    module, db_path = compute_stuck_orders
+    _insert(
+        db_path,
+        id="shopify-ks",
+        email_message_id="m-shopify-ks",
+        source="shopify",
+        merchant="Kickstarter",
+        description="Pledge fulfilment",
+        order_date=FORTY_FIVE_DAYS_AGO,
+    )
+    _code, payload = _run(module, monkeypatch, capsys)
+    assert payload == {"stuck_ids": []}
+
+
+# --- Snooze window (#63 / jbaruch/nanoclaw#917) ------------------------
+
+
+def test_open_snooze_window_suppresses(compute_stuck_orders, monkeypatch, capsys):
+    # The Ragnar case: genuinely not shipped, owner-acknowledged. The row
+    # keeps status='ordered' and simply stops being reported.
+    module, db_path = compute_stuck_orders
+    _insert(
+        db_path,
+        id="ragnar",
+        email_message_id="m-ragnar",
+        description="Ragnar Armoury — truly not shipped",
+        order_date=FORTY_FIVE_DAYS_AGO,
+        snooze_until=SNOOZE_OPEN,
+    )
+    code, payload = _run(module, monkeypatch, capsys)
+    assert code == 0
+    assert payload == {"stuck_ids": []}
+
+
+def test_lapsed_snooze_window_reflags(compute_stuck_orders, monkeypatch, capsys):
+    module, db_path = compute_stuck_orders
+    _insert(
+        db_path,
+        id="lapsed",
+        email_message_id="m-lapsed",
+        order_date=FORTY_FIVE_DAYS_AGO,
+        snooze_until=SNOOZE_LAPSED,
+    )
+    _code, payload = _run(module, monkeypatch, capsys)
+    assert payload == {"stuck_ids": ["lapsed"]}
+
+
+def test_snooze_boundary_day_reflags(compute_stuck_orders, monkeypatch, capsys):
+    # Suppression is `today < snooze_until`, so a snooze "until 2026-04-30"
+    # is over ON 2026-04-30 rather than lasting one day longer.
+    module, db_path = compute_stuck_orders
+    _insert(
+        db_path,
+        id="boundary",
+        email_message_id="m-boundary",
+        order_date=FORTY_FIVE_DAYS_AGO,
+        snooze_until=FROZEN_TODAY.isoformat(),
+    )
+    _code, payload = _run(module, monkeypatch, capsys)
+    assert payload == {"stuck_ids": ["boundary"]}
+
+
+def test_malformed_snooze_does_not_suppress(compute_stuck_orders, monkeypatch, capsys):
+    # A bad marker must never silently swallow a real alert — it degrades
+    # to "not snoozed" rather than crashing or suppressing.
+    module, db_path = compute_stuck_orders
+    _insert(
+        db_path,
+        id="garbage",
+        email_message_id="m-garbage",
+        order_date=FORTY_FIVE_DAYS_AGO,
+        snooze_until="soon-ish",
+    )
+    code, payload = _run(module, monkeypatch, capsys)
+    assert code == 0
+    assert payload == {"stuck_ids": ["garbage"]}
+
+
+def test_runs_against_pre_state_018_schema(compute_stuck_orders_legacy, monkeypatch, capsys):
+    # Cross-pipeline reader discipline: the tile keeps working against a
+    # database the orchestrator has not migrated yet. An absent column
+    # means "nothing is snoozed", never an error.
+    module, db_path = compute_stuck_orders_legacy
+    _insert(
+        db_path,
+        snooze_column=False,
+        id="unmigrated",
+        email_message_id="m-unmigrated",
+        order_date=FORTY_FIVE_DAYS_AGO,
+    )
+    code, payload = _run(module, monkeypatch, capsys)
+    assert code == 0
+    assert payload == {"stuck_ids": ["unmigrated"]}
+
+
+def test_iso_prefix_with_trailing_garbage_does_not_suppress(
+    compute_stuck_orders, monkeypatch, capsys
+):
+    # A leading-10-character slice would parse this as a valid date and
+    # suppress the order, contradicting the contract that a malformed
+    # marker cannot hide a real alert. `snooze_until` is only ever written
+    # as a bare YYYY-MM-DD, so the whole value must parse.
+    module, db_path = compute_stuck_orders
+    _insert(
+        db_path,
+        id="prefix-garbage",
+        email_message_id="m-prefix-garbage",
+        order_date=FORTY_FIVE_DAYS_AGO,
+        snooze_until=f"{SNOOZE_OPEN}garbage",
+    )
+    code, payload = _run(module, monkeypatch, capsys)
+    assert code == 0
+    assert payload == {"stuck_ids": ["prefix-garbage"]}
+
+
+def test_timestamp_shaped_snooze_does_not_suppress(compute_stuck_orders, monkeypatch, capsys):
+    # Same rule from the other side: a full ISO timestamp is not the
+    # documented shape for this column, so it does not suppress either.
+    module, db_path = compute_stuck_orders
+    _insert(
+        db_path,
+        id="timestamped",
+        email_message_id="m-timestamped",
+        order_date=FORTY_FIVE_DAYS_AGO,
+        snooze_until=f"{SNOOZE_OPEN}T00:00:00Z",
+    )
+    _code, payload = _run(module, monkeypatch, capsys)
+    assert payload == {"stuck_ids": ["timestamped"]}
+
+
+def test_iso_basic_form_does_not_suppress(compute_stuck_orders, monkeypatch, capsys):
+    # `date.fromisoformat` accepts the ISO basic form, but the column's
+    # documented shape is the canonical extended date alone — a
+    # noncanonical future value must not hide a stuck order.
+    module, db_path = compute_stuck_orders
+    _insert(
+        db_path,
+        id="basic-form",
+        email_message_id="m-basic",
+        order_date=FORTY_FIVE_DAYS_AGO,
+        snooze_until=SNOOZE_OPEN_BASIC,
+    )
+    _code, payload = _run(module, monkeypatch, capsys)
+    assert payload == {"stuck_ids": ["basic-form"]}
+
+
+def test_iso_week_form_does_not_suppress(compute_stuck_orders, monkeypatch, capsys):
+    module, db_path = compute_stuck_orders
+    _insert(
+        db_path,
+        id="week-form",
+        email_message_id="m-week",
+        order_date=FORTY_FIVE_DAYS_AGO,
+        snooze_until=SNOOZE_OPEN_WEEK,
+    )
+    _code, payload = _run(module, monkeypatch, capsys)
+    assert payload == {"stuck_ids": ["week-form"]}
+
+
+def test_impossible_date_in_canonical_shape_does_not_suppress(
+    compute_stuck_orders, monkeypatch, capsys
+):
+    # Shape check passes, calendar check must still reject it.
+    module, db_path = compute_stuck_orders
+    _insert(
+        db_path,
+        id="impossible",
+        email_message_id="m-impossible",
+        order_date=FORTY_FIVE_DAYS_AGO,
+        snooze_until="2026-13-45",
+    )
+    _code, payload = _run(module, monkeypatch, capsys)
+    assert payload == {"stuck_ids": ["impossible"]}

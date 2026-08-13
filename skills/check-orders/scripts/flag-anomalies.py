@@ -19,6 +19,11 @@ AND supplied as stuck), the first match wins per the order below:
   | shipped|ordered, expected_delivery >2d ago | "Overdue delivery"         | 30d from exp_deliv  |
   | status=ordered, id in STUCK_IDS            | "Ordered, not yet shipped" | supplied by caller  |
 
+An unlapsed `snooze_until` (`jbaruch/nanoclaw#917`) suppresses EVERY
+rule above for that row, and unflags it if it was already flagged: the
+owner asked to stop hearing about the order, not to stop hearing about
+one particular reason for it. Written by `snooze-orders.py`.
+
 Stuck-order rule (`jbaruch/nanoclaw-orders#55`): the primary signal the
 owner wants is "placed weeks ago, never shipped". `compute-stuck-orders.py`
 (Step 8) decides which `ordered` rows are stuck — a deterministic join on
@@ -44,11 +49,17 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import sys
 from datetime import date
 
 DB_PATH = os.environ.get("ORDERS_DB_PATH", "/workspace/store/messages.db")
+
+# Canonical extended calendar date — the only `snooze_until` shape
+# `snooze-orders.py` writes and the only one honoured here. Kept
+# identical to `compute-stuck-orders.py`'s copy.
+_CANONICAL_DATE = re.compile(r"\d{4}-\d{2}-\d{2}\Z")
 
 
 def _within_days(value, days: int) -> bool:
@@ -89,6 +100,40 @@ def _expected_delivery_within_30_days(value: str | None) -> bool:
     return _within_days(value, 30)
 
 
+def _snooze_open(snooze_until) -> bool:
+    """True iff the row carries a snooze window that has not yet lapsed.
+
+    Mirrors `compute-stuck-orders.py`'s reader exactly — canonical
+    `YYYY-MM-DD` only, suppression while `today < snooze_until`, and a
+    malformed value degrading to "not snoozed" so a bad marker can never
+    hide a real alert. Duplicated rather than imported because these
+    scripts are standalone executables with no shared module (same
+    pattern as `_within_days` and `within-days.py`); the two copies are
+    surface-synced.
+    """
+    if not isinstance(snooze_until, str):
+        return False
+    value = snooze_until.strip()
+    if not _CANONICAL_DATE.match(value):
+        return False
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError:
+        return False
+    return date.today() < parsed
+
+
+def _has_snooze_column(conn) -> bool:
+    """True iff the `orders` table carries `snooze_until` (`state-018`).
+
+    Absent means "nothing is snoozed", never an error — the tile runs
+    against databases the orchestrator has not migrated yet
+    (`coding-policy: stateful-artifacts` reader discipline).
+    """
+    cols = conn.execute("PRAGMA table_info(orders)").fetchall()
+    return any(col["name"] == "snooze_until" for col in cols)
+
+
 def _classify(row: dict, stuck_ids: set) -> tuple[bool, str | None]:
     """Return (should_flag, flag_reason) for a single order row.
 
@@ -99,7 +144,19 @@ def _classify(row: dict, stuck_ids: set) -> tuple[bool, str | None]:
     Implements the anomaly rules above. First-match-wins in table order:
     a cancellation/refund outranks an overdue signal, and a concrete
     overdue `expected_delivery` outranks the supplied stuck signal.
+
+    An open snooze window outranks all of them. Suppressing here rather
+    than in Step 8 alone is what makes the marker mean what the owner
+    means by it — "stop alerting on this row until <date>", not "stop
+    alerting only when the stuck rule happens to be the one that fires".
+    Step 8 reaches only `ordered` rows via the stuck rule, so without
+    this an `ordered` row with an overdue `expected_delivery` still flags
+    on the higher-priority rule, and a snoozed `shipped` row — which
+    `snooze-orders.py` accepts — never enters Step 8 at all.
     """
+    if _snooze_open(row["snooze_until"]):
+        return False, None
+
     status = row["status"]
     order_date = row["order_date"]
     expected_delivery = row["expected_delivery"]
@@ -141,8 +198,13 @@ def main() -> int:
         stuck_ids_raw = os.environ.get("STUCK_IDS", "")
         stuck_ids = {s.strip() for s in stuck_ids_raw.split(",") if s.strip()}
 
+        # Select `snooze_until` only when state-018 has been applied; on an
+        # un-migrated database the literal NULL keeps the row shape stable
+        # so `_classify` needs no second code path.
+        snooze_select = "snooze_until" if _has_snooze_column(conn) else "NULL AS snooze_until"
         rows = conn.execute(
-            "SELECT id, status, order_date, expected_delivery, flagged, flag_reason FROM orders"
+            "SELECT id, status, order_date, expected_delivery, flagged, "
+            f"flag_reason, {snooze_select} FROM orders"
         ).fetchall()
 
         for row in rows:

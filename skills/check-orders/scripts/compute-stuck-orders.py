@@ -19,6 +19,29 @@ Below STUCK_ORDER_MIN_DAYS a slow ship is normal, not yet a signal; above
 STUCK_ORDER_MAX_DAYS the alert ages out (channel stays signal-only, same
 philosophy as the flag-anomalies cutoffs).
 
+Two further suppressions keep rows out of the pool (`#63`):
+
+  - **Never-ship merchants** (NEVER_SHIP_MERCHANTS): crowdfunding,
+    subscription, and digital sources emit no shipment email ever, so
+    "ordered with no shipment" is their steady state, not an anomaly.
+    Without this they flag for the whole `[MIN, MAX]` window before the
+    age ceiling drains them. Matching mirrors `apply-exclusions.py`'s
+    precedence: the persisted `merchant` column is authoritative when
+    present, and only a NULL/blank `merchant` (legacy rows predating
+    `state-017`) on an unclassified `source` falls through to a
+    `description` substring match.
+  - **Open snooze window** (`snooze_until`, `jbaruch/nanoclaw#917`):
+    an order the owner has acknowledged as *genuinely still not
+    shipped*. `ack-orders.py`'s `assumed_delivered` transition would
+    record a delivery that never happened, so the snooze marker
+    suppresses re-flagging while leaving `status = 'ordered'` honest.
+    Suppression holds while `today < snooze_until`.
+
+`snooze_until` is read only when the column exists — the tile keeps
+working against a database that has not applied `state-018` yet, per
+`coding-policy: stateful-artifacts` cross-pipeline reader discipline.
+An absent column means "nothing is snoozed", never an error.
+
 Stdout on success: `{"stuck_ids": ["amazon-...", ...]}` (ascending id
 order). The list feeds `flag-anomalies.py`'s STUCK_IDS at Step 9.
 
@@ -29,6 +52,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import sys
 from datetime import date
@@ -39,6 +63,35 @@ STUCK_ORDER_MIN_DAYS = 7
 STUCK_ORDER_MAX_DAYS = 90
 
 _SHIPPED_STATUSES = ("shipped", "delivered", "assumed_delivered")
+
+# Merchants that never emit a shipment email, so an `ordered` row from one
+# is never evidence of a stuck order (`#63`). Curated and fully enumerable
+# per `coding-policy: script-delegation` "The Regex Trap" — substrings, not
+# fuzzy matching. Extend this tuple when a new never-ship merchant shows
+# up in the backlog; there is deliberately no pattern-inference path.
+#
+# Kickstarter and Indiegogo pledges ship (if ever) months to years later
+# and outside the email trail entirely. Patreon and Substack are recurring
+# subscriptions with no physical fulfilment at all.
+NEVER_SHIP_MERCHANTS = (
+    "kickstarter",
+    "indiegogo",
+    "patreon",
+    "substack",
+)
+
+# `classify-order.py`'s fallback source for a domain it does not map to
+# amazon / shopify / shop — where every never-ship merchant lands. Gates
+# the description fallback in `_never_ships` so a known-shipping source
+# is never suppressed by description text alone.
+_UNCLASSIFIED_SOURCE = "other"
+
+# The canonical extended calendar date, the only shape `snooze-orders.py`
+# writes. `date.fromisoformat` additionally accepts the ISO basic form
+# (`20260601`) and week form (`2026-W40-1`), so the shape is enforced
+# before parsing — a noncanonical future value must not suppress an alert
+# the contract says only a well-formed marker can.
+_CANONICAL_DATE = re.compile(r"\d{4}-\d{2}-\d{2}\Z")
 
 
 def _aged_candidate(order_date) -> bool:
@@ -66,13 +119,87 @@ def _order_key(source, order_number):
     return None
 
 
+def _never_ships(source, merchant, description) -> bool:
+    """True iff the row belongs to a merchant that never emits a shipment
+    email, so "ordered with no shipment" is its steady state.
+
+    Precedence mirrors `apply-exclusions.py`: a populated `merchant` is
+    authoritative and the description is NOT consulted, so a row whose
+    merchant is known-shipping stays eligible even if its description
+    happens to mention a never-ship name ("bought on Amazon with my
+    Kickstarter refund").
+
+    A NULL/blank `merchant` — a legacy row predating `state-017` — falls
+    through to the description, but only for `source = 'other'`. Every
+    never-ship merchant classifies there (`classify-order.py` maps only
+    amazon / shopify / shop domains to their own source), so a row from a
+    known-shipping source can never be suppressed by description text
+    alone. Without that gate a NULL-merchant Amazon row whose description
+    mentions a pledge would drop out of the pool silently.
+    """
+    if isinstance(merchant, str) and merchant.strip():
+        lowered = merchant.lower()
+        return any(name in lowered for name in NEVER_SHIP_MERCHANTS)
+    if source == _UNCLASSIFIED_SOURCE and isinstance(description, str):
+        lowered = description.lower()
+        return any(name in lowered for name in NEVER_SHIP_MERCHANTS)
+    return False
+
+
+def _snooze_open(snooze_until) -> bool:
+    """True iff the row carries a snooze window that has not yet lapsed.
+
+    Suppression holds while `today < snooze_until`, so the boundary day
+    itself re-flags — a snooze "until 2026-09-01" is over ON 2026-09-01.
+    A non-string or malformed value is treated as "not snoozed" rather
+    than crashing the nightly run, since a bad marker must never suppress
+    a real alert.
+
+    Requires the WHOLE stripped value to match the canonical extended
+    date, unlike `_aged_candidate`'s leading 10 characters. `order_date`
+    legitimately carries a full ISO timestamp, so slicing is right there;
+    `snooze_until` is only ever written as a bare `YYYY-MM-DD` by
+    `snooze-orders.py`. A slice here would let `2026-09-01garbage` parse,
+    and `date.fromisoformat` alone would accept the ISO basic and week
+    forms — each silently suppressing the order, the exact outcome this
+    function's contract promises a malformed value cannot have.
+    """
+    if not isinstance(snooze_until, str):
+        return False
+    value = snooze_until.strip()
+    if not _CANONICAL_DATE.match(value):
+        return False
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError:
+        # Shape is right but the value is not a real date (2026-13-45).
+        return False
+    return date.today() < parsed
+
+
+def _has_snooze_column(conn) -> bool:
+    """True iff the `orders` table carries `snooze_until` (`state-018`).
+
+    The tile may run against a database the orchestrator has not migrated
+    yet, so the column's absence is a normal state meaning "nothing is
+    snoozed" — never an error (`stateful-artifacts` reader discipline).
+    """
+    cols = conn.execute("PRAGMA table_info(orders)").fetchall()
+    return any(col["name"] == "snooze_until" for col in cols)
+
+
 def main() -> int:
     conn = None
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
+        # Select `snooze_until` only when state-018 has been applied; on an
+        # un-migrated database the literal NULL keeps the row shape stable
+        # so the loop below needs no second code path.
+        snooze_select = "snooze_until" if _has_snooze_column(conn) else "NULL AS snooze_until"
         rows = conn.execute(
-            "SELECT id, status, source, order_date, order_number FROM orders"
+            "SELECT id, status, source, order_date, order_number, merchant, "
+            f"description, {snooze_select} FROM orders"
         ).fetchall()
 
         # Logical-order keys proven shipped. Built over all rows so an
@@ -87,6 +214,10 @@ def main() -> int:
         stuck_ids = []
         for row in rows:
             if row["status"] != "ordered" or not _aged_candidate(row["order_date"]):
+                continue
+            if _never_ships(row["source"], row["merchant"], row["description"]):
+                continue
+            if _snooze_open(row["snooze_until"]):
                 continue
             key = _order_key(row["source"], row["order_number"])
             if key is None or key not in shipped_keys:

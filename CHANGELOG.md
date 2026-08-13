@@ -2,6 +2,17 @@
 
 All notable changes to this tile are documented here.
 
+### Fixed — `check-orders` stops flagging never-ship merchants and honours owner snoozes
+
+The two refinements left over from `jbaruch/nanoclaw-orders#61`, closing `#63`.
+
+- **Never-ship merchants.** Kickstarter and Indiegogo pledges, Patreon and Substack subscriptions never emit a shipment email, so "ordered with no shipment" is their steady state rather than an anomaly — yet they entered the stuck pool and flagged for the whole `[7, ceiling]` window until auto-resolve drained them. `compute-stuck-orders.py` now suppresses them from a curated `NEVER_SHIP_MERCHANTS` tuple, fully enumerable per `script-delegation`'s "Regex Trap" with no pattern-inference path. Matching mirrors `apply-exclusions.py`'s precedence: a populated `merchant` (from `state-017`) is authoritative and the description is not consulted, so an Amazon order whose description mentions a Kickstarter refund stays flaggable. A NULL/blank merchant — a legacy row — falls through to a description substring match, but only on `source = 'other'`, where every never-ship merchant classifies (`classify-order.py` maps only amazon/shopify/shop domains to their own source). Without that gate a NULL-merchant Amazon row could be suppressed by description text alone.
+- **Owner snoozes.** `ack-orders.py` answers "these arrived" by transitioning rows to `assumed_delivered`. It cannot answer the other half of the same owner reply — "this one truly not shipped, all the rest shipped and delivered" — because `assumed_delivered` would record a delivery that never happened, while leaving it `ordered` re-flags it nightly. New `snooze-orders.py` (ids on stdin, `SNOOZE_UNTIL` env) writes the `snooze_until` column from `jbaruch/nanoclaw#917` and touches nothing else, so the row keeps its honest `ordered` status while the nightly run stops reporting it. Suppression is `today < snooze_until`, so the boundary day itself re-flags. The writer rejects a missing, non-canonical, or non-future date with exit 2 rather than writing a no-op snooze the owner would believe had taken effect — the ISO basic (`20260601`) and week (`2026-W40-1`) forms included, since `date.fromisoformat` accepts them but the readers honour the canonical `YYYY-MM-DD` alone.
+
+Both readers honour the marker, which matters more than it first looked: Step 8 reaches only `ordered` rows via the stuck rule, so a snooze enforced there alone would still let an `ordered` row with an overdue `expected_delivery` flag on the higher-priority "Overdue delivery" rule, and would do nothing at all for the `shipped` rows the writer accepts — reporting `snoozed: 1` while the order kept alerting. `flag-anomalies.py` (Step 9) now suppresses every rule for a snoozed row and unflags it if already flagged, so "stop asking" means the order goes quiet rather than going quiet only when one particular rule would have fired.
+
+Step 8's reader tolerates the column being absent per `stateful-artifacts` cross-pipeline reader discipline — on a database that has not applied `state-018` yet it reads "nothing is snoozed" and runs normally, so the tile need not ship in lock-step with the orchestrator. That path is covered against a real un-migrated table rather than a mock.
+
 ## 0.1.38 — 2026-08-13
 
 ### Fixed — `check-orders` drains the stuck-`ordered` "roach motel" and persists owner acks
