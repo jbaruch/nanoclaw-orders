@@ -127,19 +127,19 @@ The exclusion rule table and all matching logic are owned by the script — see 
 
 Stdout: `{"excluded_ids": [...], "excluded_ids_csv": "...", "matched": <int>, "unflagged": <int>}` (ids in ascending `id` order). Pass `excluded_ids_csv` verbatim as Step 9's `EXCLUDED_IDS` — do not recompute or edit the list.
 
-**Ad-hoc tools (outside this flow):** `scripts/unflag-orders.py` clears the flag for a single run only — the row keeps its status, so a stuck-order alert it silenced resurfaces next run. When the owner acknowledges that flagged orders arrived ("these are delivered"), persist it with `scripts/ack-orders.py` (ids on stdin, one per line) — it transitions the `ordered`/`shipped` rows to `assumed_delivered` (Step 7's terminal status), so the stuck detector never re-flags them. Stdout: `{"acked": <int>, "not_acked": <int>}`.
+**Ad-hoc tools (outside this flow):** `scripts/unflag-orders.py` clears the flag for a single run; the row keeps its status. To persist an owner acknowledgement that flagged orders arrived, use `scripts/ack-orders.py` (ids on stdin, one per line): it transitions `ordered`/`shipped` rows to `assumed_delivered` (Step 7's terminal status), which the stuck detector never re-flags. Stdout: `{"acked": <int>, "not_acked": <int>}`.
 
 ## Step 7 — Auto-promote stale shipped/ordered orders
 
-Some senders (e.g. Chewy Autoship) never send a delivered email; status stays `shipped` and Step 9's "Overdue delivery" rule keeps firing. Others never send a shipment email at all (digital/subscription/Kickstarter/autoship), so the row sits in `ordered` forever and the stuck detector re-flags it every run. Promote stale rows to synthetic terminal `assumed_delivered`:
+Promote stale `shipped`/`ordered` rows to synthetic terminal `assumed_delivered`:
 
 ```bash
 python3 scripts/promote-stale-shipped.py
 ```
 
-A row promotes if it matches EITHER path — the exact thresholds are owned by `scripts/promote-stale-shipped.py` (module docstring + top-of-file constants):
+A row promotes if it matches EITHER path. The exact thresholds are owned by `scripts/promote-stale-shipped.py` (module docstring + top-of-file constants):
 - **Expected-delivery path**: `status IN ('shipped', 'ordered')`, an overdue `expected_delivery` (ISO date past the threshold, or malformed/free-text), and a stale `last_updated`.
-- **Age-ceiling path** (`jbaruch/nanoclaw-orders#61`): an `ordered` row whose `order_date` is past the ceiling. Drains never-matched orders (NULL `expected_delivery`, so the first path can't touch them) that would otherwise linger in `ordered` and re-flag forever. The ceiling aligns with `compute-stuck-orders.py`'s stuck-window upper bound, so a row leaves the stuck pool and lands in a resolved status in the same pass.
+- **Age-ceiling path** (`jbaruch/nanoclaw-orders#61`): an `ordered` row whose `order_date` is past the ceiling. The ceiling matches `compute-stuck-orders.py`'s stuck-window upper bound.
 
 Stdout: `{"promoted": <int>, "ids": [...]}`. Idempotent. `assumed_delivered` is synthetic terminal — Step 9 never flags it. Future emails still update via Step 5's merge rule.
 
