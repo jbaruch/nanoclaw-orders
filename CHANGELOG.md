@@ -2,6 +2,8 @@
 
 All notable changes to this plugin are documented here.
 
+## 0.1.43 — 2026-08-18
+
 ### Fixed — `check-orders` stops flagging an order that already shipped on a second row
 
 `jbaruch/nanoclaw-orders#68`: the morning brief led with `Amazon Essentials item · просрочено` for an order that had shipped nine days earlier. Both facts were in the table, on two different rows. The row id is `{source}-{order_date}-{sha1(description)[:8]}` (`compute-order-id.py`), and Amazon described the same purchase as "1 Essentials item" in the shipment email where the confirmation said "Essentials item" — one character, a different SHA-1 prefix, a second row. The shipment landed beside the confirmation instead of on top of it, so the `ordered` row kept the `expected_delivery` it was born with and `flag-anomalies.py` went on applying the Overdue-delivery rule to it on its own merits. The rule never asked whether the rest of the order had moved on.
