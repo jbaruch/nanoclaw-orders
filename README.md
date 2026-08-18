@@ -93,3 +93,10 @@ The `nightly-order-sync` cadence wrapper carries its own scripts:
 - **V1** — migrated `check-orders` + its `nightly-order-sync` cadence wrapper from `nanoclaw-admin` as a standalone per-chat overlay tile (`jbaruch/nanoclaw-admin#319`). The wrapper materialises one `scheduled_tasks` row in chats that load this overlay.
 
 See [CHANGELOG.md](CHANGELOG.md) for version history.
+
+## Development dependencies
+
+`tessl.json` declares this repo's dev-time plugin dependencies.
+
+- Every `jbaruch/*` dependency floats at `latest` (Runtime-Managed Manifest Carve-Out, `jbaruch/coding-policy: dependency-management`).
+- `finsi/codex-review` is third-party and pins. No dependency scanner covers the tessl ecosystem. Renewal cadence: quarterly — run `tessl outdated` and bump the pin in its own commit.
