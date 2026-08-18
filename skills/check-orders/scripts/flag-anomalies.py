@@ -17,12 +17,30 @@ AND supplied as stuck), the first match wins per the order below:
   | status=cancelled                           | "Order cancelled"          | 14d from order_date |
   | status=refunded                            | "Refund/return"            | 14d from order_date |
   | shipped|ordered, expected_delivery >2d ago | "Overdue delivery"         | 30d from exp_deliv  |
+  |   AND the logical order not superseded     |                            |                     |
   | status=ordered, id in STUCK_IDS            | "Ordered, not yet shipped" | supplied by caller  |
 
 An unlapsed `snooze_until` (`jbaruch/nanoclaw#917`) suppresses EVERY
 rule above for that row, and unflags it if it was already flagged: the
 owner asked to stop hearing about the order, not to stop hearing about
 one particular reason for it. Written by `snooze-orders.py`.
+
+Superseded rows (`jbaruch/nanoclaw-orders#68`): one logical order can
+land on two rows. The row id is `{source}-{order_date}-{sha1(description)[:8]}`
+(`compute-order-id.py`), so a shipment email whose description differs from
+the confirmation's by one character ("1 Essentials item" vs "Essentials
+item") creates a second row instead of updating the first. The stale
+`ordered` row keeps the `expected_delivery` the confirmation carried and
+flags "Overdue delivery" on its own for days after the order shipped — the
+symptom `#68` reports. The Overdue rule therefore skips a row whose logical
+order already holds a further-along row dated no earlier: a
+`shipped`/`delivered`/`assumed_delivered` sibling for an `ordered` row, a
+`delivered`/`assumed_delivered` sibling for a `shipped` one. Logical-order
+identity is the `(source, order_number)` key `compute-stuck-orders.py` pairs
+on, so both scripts reconcile split rows the same way. Progression must be
+strict, so two `shipped` rows of one order never silence each other and an
+overdue delivery can never go quiet through a same-status duplicate. A
+blank `order_number` cannot be paired and keeps the current behaviour.
 
 Stuck-order rule (`jbaruch/nanoclaw-orders#55`): the primary signal the
 owner wants is "placed weeks ago, never shipped". `compute-stuck-orders.py`
@@ -60,6 +78,18 @@ DB_PATH = os.environ.get("ORDERS_DB_PATH", "/workspace/store/messages.db")
 # `snooze-orders.py` writes and the only one honoured here. Kept
 # identical to `compute-stuck-orders.py`'s copy.
 _CANONICAL_DATE = re.compile(r"\d{4}-\d{2}-\d{2}\Z")
+
+# Order-lifecycle progression, low to high, for the supersession test in
+# `_superseded_ids`. `delivered` and `assumed_delivered` share the top rank:
+# both mean the order arrived, one reported by the merchant and one by the
+# owner (`ack-orders.py`). A status absent here never supersedes and is
+# never superseded.
+_STATUS_RANK = {
+    "ordered": 0,
+    "shipped": 1,
+    "delivered": 2,
+    "assumed_delivered": 2,
+}
 
 
 def _within_days(value, days: int) -> bool:
@@ -100,6 +130,79 @@ def _expected_delivery_within_30_days(value: str | None) -> bool:
     return _within_days(value, 30)
 
 
+def _order_key(source, order_number):
+    """(source, order_number) logical-order key, or None when the row has
+    no usable order number (NULL/blank) and so cannot be paired.
+
+    Identical to `compute-stuck-orders.py`'s copy — duplicated rather than
+    imported for the same reason `_snooze_open` is (standalone executables,
+    no shared module), and surface-synced with it.
+    """
+    if isinstance(order_number, str) and order_number.strip():
+        return (source, order_number.strip())
+    return None
+
+
+def _order_day(value):
+    """Parse a row's `order_date` to a date, or None when unusable.
+
+    Slices the leading 10 characters like `_within_days` does — `order_date`
+    legitimately carries a full ISO timestamp. A non-string or malformed
+    value yields None, which keeps the row out of every supersession
+    comparison: a date that cannot be read must never be the reason an
+    overdue order goes quiet.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        return date.fromisoformat(value.strip()[:10])
+    except ValueError:
+        return None
+
+
+def _superseded_ids(rows) -> set:
+    """Ids whose logical order already holds a further-along, no-earlier row.
+
+    Progression rank is `ordered` < `shipped` < `delivered`/
+    `assumed_delivered` — the two terminal statuses share the top rank
+    (`ack-orders.py` writes `assumed_delivered` for a delivery the owner
+    confirmed out of band). A row is superseded when a sibling on the same
+    `(source, order_number)` key carries a STRICTLY higher rank and an
+    `order_date` no earlier than its own.
+
+    Strictness is what keeps the suppression safe: same-rank siblings never
+    supersede each other, so a pair of `shipped` rows for one order cannot
+    silence both halves of a genuinely overdue delivery. The no-earlier date
+    test keeps an old shipment from vouching for a later re-order that reuses
+    the merchant's order number.
+
+    Statuses outside the rank map (`cancelled`, `refunded`, `unknown`) take
+    no part on either side — they are neither superseded nor superseding.
+    """
+    latest_by_key: dict = {}
+    for row in rows:
+        rank = _STATUS_RANK.get(row["status"])
+        key = _order_key(row["source"], row["order_number"])
+        day = _order_day(row["order_date"])
+        if rank is None or key is None or day is None:
+            continue
+        by_rank = latest_by_key.setdefault(key, {})
+        if rank not in by_rank or day > by_rank[rank]:
+            by_rank[rank] = day
+
+    superseded = set()
+    for row in rows:
+        rank = _STATUS_RANK.get(row["status"])
+        key = _order_key(row["source"], row["order_number"])
+        day = _order_day(row["order_date"])
+        if rank is None or key is None or day is None:
+            continue
+        by_rank = latest_by_key.get(key, {})
+        if any(other > rank and latest >= day for other, latest in by_rank.items()):
+            superseded.add(row["id"])
+    return superseded
+
+
 def _snooze_open(snooze_until) -> bool:
     """True iff the row carries a snooze window that has not yet lapsed.
 
@@ -134,12 +237,17 @@ def _has_snooze_column(conn) -> bool:
     return any(col["name"] == "snooze_until" for col in cols)
 
 
-def _classify(row: dict, stuck_ids: set) -> tuple[bool, str | None]:
+def _classify(row: dict, stuck_ids: set, superseded_ids: set) -> tuple[bool, str | None]:
     """Return (should_flag, flag_reason) for a single order row.
 
     `stuck_ids` is the set of `ordered`-row ids `compute-stuck-orders.py`
     (Step 8) determined are stuck (aged, with no matching shipment). This
     script trusts that structured list rather than re-deriving it.
+
+    `superseded_ids` is `_superseded_ids`'s verdict over the whole table:
+    rows whose logical order has already moved further along. Only the
+    Overdue rule consults it — a cancellation or refund is that row's own
+    news, and the stuck rule already applied the same pairing upstream.
 
     Implements the anomaly rules above. First-match-wins in table order:
     a cancellation/refund outranks an overdue signal, and a concrete
@@ -167,6 +275,7 @@ def _classify(row: dict, stuck_ids: set) -> tuple[bool, str | None]:
         return True, "Refund/return"
     if (
         status in ("shipped", "ordered")
+        and row["id"] not in superseded_ids
         and _expected_delivery_overdue(expected_delivery)
         and _expected_delivery_within_30_days(expected_delivery)
     ):
@@ -203,14 +312,19 @@ def main() -> int:
         # so `_classify` needs no second code path.
         snooze_select = "snooze_until" if _has_snooze_column(conn) else "NULL AS snooze_until"
         rows = conn.execute(
-            "SELECT id, status, order_date, expected_delivery, flagged, "
-            f"flag_reason, {snooze_select} FROM orders"
+            "SELECT id, status, source, order_date, order_number, "
+            f"expected_delivery, flagged, flag_reason, {snooze_select} FROM orders"
         ).fetchall()
+
+        # Built over every row, excluded ones included: an excluded shipment
+        # still proves its `ordered` sibling shipped, exactly as Step 8 builds
+        # its shipped keys over the whole table.
+        superseded_ids = _superseded_ids(rows)
 
         for row in rows:
             if row["id"] in excluded_ids:
                 continue
-            should_flag, reason = _classify(dict(row), stuck_ids)
+            should_flag, reason = _classify(dict(row), stuck_ids, superseded_ids)
             current_flagged = bool(row["flagged"])
             if should_flag and (not current_flagged or row["flag_reason"] != reason):
                 conn.execute(
@@ -241,7 +355,7 @@ def main() -> int:
             f"flag-anomalies: SQLite error against {DB_PATH}: {exc}. "
             f"Verify the database file exists, is writable, and the "
             f"orders table is present (created by the orchestrator's "
-            f"state-001 migration).\n"
+            f"state-001 migration, with order_number added by state-017).\n"
         )
         return 1
     finally:
