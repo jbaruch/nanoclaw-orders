@@ -1,9 +1,9 @@
 """Local test double for heartbeat's gmail-ops.py.
 
 fetch-order-emails.py loads the real module at runtime from the co-loaded
-`tessl__heartbeat` tile mount; this tile does not ship it (nanoclaw#638).
+`tessl__heartbeat` plugin mount; this plugin does not ship it (nanoclaw#638).
 This fake mirrors the real module's contract rather than stubbing it out,
-because that contract is exactly what this tile's fetch logic is built on:
+because that contract is exactly what this plugin's fetch logic is built on:
 
   - `list_messages` answers a query with `{id, threadId}` STUBS ONLY,
     unwrapped from Gmail's `{"messages": [...]}` envelope, and returns []
@@ -14,7 +14,7 @@ A stub that returned full messages from `list_messages` would hide the
 N+1 the script is written around, and the dedup-before-`get` assertions
 would prove nothing. The real module's own behavior (param encoding,
 pagination refusal) is covered in jbaruch/nanoclaw-admin's heartbeat
-suite; what this tile owns is the fan-out built on top.
+suite; what this plugin owns is the fan-out built on top.
 """
 
 _USER = "me"

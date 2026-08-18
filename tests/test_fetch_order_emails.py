@@ -25,7 +25,7 @@ preflight are gone):
     faults, not per-query errors)
   - the loaded sanitizer runs on every message BEFORE projection (the
     sanitizer's own invisible-unicode behavior is covered in
-    jbaruch/nanoclaw-admin's heartbeat suite; this tile owns the
+    jbaruch/nanoclaw-admin's heartbeat suite; this plugin owns the
     integration contract that raw fields never reach the projection
     unsanitized)
 
@@ -264,7 +264,7 @@ def test_sanitizer_runs_before_projection(gmail_for, run_fetch):
     """Integration contract: every kept message passes through the loaded
     sanitizer BEFORE the compact-row projection reads its text fields. The
     sanitizer's own invisible-unicode behavior is heartbeat's (tested in
-    admin's suite); what this tile owns is that the projection only ever
+    admin's suite); what this plugin owns is that the projection only ever
     sees post-sanitizer state — a marking sanitizer double proves the
     ordering."""
 

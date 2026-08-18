@@ -37,7 +37,7 @@ Two further suppressions keep rows out of the pool (`#63`):
     suppresses re-flagging while leaving `status = 'ordered'` honest.
     Suppression holds while `today < snooze_until`.
 
-`snooze_until` is read only when the column exists — the tile keeps
+`snooze_until` is read only when the column exists — the plugin keeps
 working against a database that has not applied `state-018` yet, per
 `coding-policy: stateful-artifacts` cross-pipeline reader discipline.
 An absent column means "nothing is snoozed", never an error.
@@ -180,7 +180,7 @@ def _snooze_open(snooze_until) -> bool:
 def _has_snooze_column(conn) -> bool:
     """True iff the `orders` table carries `snooze_until` (`state-018`).
 
-    The tile may run against a database the orchestrator has not migrated
+    The plugin may run against a database the orchestrator has not migrated
     yet, so the column's absence is a normal state meaning "nothing is
     snoozed" — never an error (`stateful-artifacts` reader discipline).
     """

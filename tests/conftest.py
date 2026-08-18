@@ -178,7 +178,7 @@ def fetch_order_emails(tmp_path, monkeypatch):
     fixture. Returned tuple is (module, missing_scripts_dir, db_path).
 
     Both heartbeat resolution paths are pointed at absent tmp dirs — this
-    tile does not ship the heartbeat scripts, and the in-repo fallback
+    plugin does not ship the heartbeat scripts, and the in-repo fallback
     would not exist on a runner either — so the default state is the
     fail-closed `main()` path (helper unavailable → exit 2). Tests that
     need the helpers repoint `_HEARTBEAT_MOUNT` at `tests/fakes/`, which
@@ -260,7 +260,7 @@ def snooze_pipeline(tmp_path, monkeypatch):
 def compute_stuck_orders_legacy(tmp_path, monkeypatch):
     """Load compute-stuck-orders.py against a pre-state-018 `orders` table.
 
-    The tile ships ahead of, or behind, the orchestrator's migrations, so
+    The plugin ships ahead of, or behind, the orchestrator's migrations, so
     Step 8 must keep working on a database with no `snooze_until` column —
     absent means "nothing is snoozed", never an error.
     """
@@ -347,7 +347,7 @@ def within_days():
 def heartbeat_fakes():
     """Load the `tests/fakes/` doubles for the four heartbeat modules
     fetch-order-emails.py resolves over the co-loaded `tessl__heartbeat`
-    tile mount (this tile ships none of them).
+    plugin mount (this plugin ships none of them).
 
     Loaded through the same file-path import the script itself uses, so
     the doubles are exercised as modules rather than as ad-hoc stubs.

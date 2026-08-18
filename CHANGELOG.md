@@ -1,5 +1,11 @@
 # Changelog
 
+### Chore — migrate from `tile.json` to `.tessl-plugin/plugin.json` (`jbaruch/nanoclaw-core#97`)
+
+Ran `Skill(skill: "tessl__migrate-to-plugin")`: `tessl plugin migrate` wrote `.tessl-plugin/plugin.json` at the current version (0.1.41), `.tileignore` became `.tesslignore`, and `tile.json` is gone. The exclusion set is unchanged — `/tessl.json` was already anchored there — so nothing new enters or leaves the package. `tessl plugin pack` still synthesizes a legacy `tile.json` into the published archive for older consumers; that one is generated, not committed. Verified against the packed archive: all 21 `check-orders` scripts, both `nightly-order-sync` scripts, every `state-schema.md`, and both `references/` files still ship.
+
+Terminology reconciliation (skill Step 2): package-sense "tile" → "plugin" across the README, `state-schema.md`, three `check-orders` scripts, the test suite and its fakes, `pyproject.toml`, and the plugin description itself. Two live contracts keep the old spelling: `containerConfig.additionalTiles` is the orchestrator's config key, and the `hostile` fixtures in `test_render_order_alerts.py` merely contain the substring. The `publish.yml` display name goes from "Review & Publish Tile" to "Review & Publish Plugin" — the only CI edit here, matching the fleet-wide rename tracked in `jbaruch/nanoclaw-host#50`. Historical `tile.json` references in this CHANGELOG stay as written; they name a file that existed at the time.
+
 ## 0.1.41 — 2026-08-18
 
 ### Chore — commit `tessl.json` as the dependency manifest it is

@@ -1,20 +1,20 @@
 """Local test double for heartbeat's gmail-message.py.
 
 fetch-order-emails.py loads the real module at runtime from the co-loaded
-`tessl__heartbeat` tile mount; this tile does not ship it (nanoclaw#638).
+`tessl__heartbeat` plugin mount; this plugin does not ship it (nanoclaw#638).
 
 This fake implements `parse_message` against the REAL native shapes —
 `payload.headers` as a raw name/value list, base64url part bodies in a
 nested MIME tree, `internalDate` as an epoch-millisecond string — rather
 than returning a canned flat dict. The reason is the same one that makes
-the gmail-ops fake real: this tile's projection maps parse_message's
+the gmail-ops fake real: this plugin's projection maps parse_message's
 output keys onto the stdout contract, so a fake that invented its own
 output keys would assert nothing about the mapping under test.
 
 It is deliberately NOT a copy of the real parser: no HTML-to-text
 conversion, no attachment skipping, no malformed-part tolerance. Those
 are heartbeat's behaviors, covered by jbaruch/nanoclaw-admin's heartbeat
-suite. What this fake guarantees is the contract this tile consumes:
+suite. What this fake guarantees is the contract this plugin consumes:
 sanitize() runs on every text field, and the output keys are
 {messageId, threadId, labelIds, internalDate (ISO 8601 UTC), from, to,
 subject, snippet, body}.

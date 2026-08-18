@@ -1,4 +1,4 @@
-name: Review & Publish Tile
+name: Review & Publish Plugin
 
 # Thin caller for the canonical fleet publish pipeline
 # (jbaruch/coding-policy#206). All steps live in the reusable workflow;

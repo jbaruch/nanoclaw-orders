@@ -4,7 +4,7 @@
 
 Order-email triage for NanoClaw. Fetches order-related Gmail, keeps the `orders` SQLite table current, and flags recent anomalies — cancellations/refunds, overdue deliveries, and orders stuck in `ordered` that never shipped — surfacing only the flagged events so the alert channel stays signal-only.
 
-Per-chat overlay tile. Install via NanoClaw's `containerConfig.additionalTiles` mechanism.
+Per-chat overlay plugin. Install via NanoClaw's `containerConfig.additionalTiles` mechanism.
 
 ## Capabilities
 
@@ -20,7 +20,7 @@ Per-chat overlay tile. Install via NanoClaw's `containerConfig.additionalTiles` 
 tessl install jbaruch/nanoclaw-orders
 ```
 
-Add to a chat's overlay tile list via `update_group_config`:
+Add to a chat's overlay plugin list via `update_group_config`:
 
 ```
 additionalTiles: ["nanoclaw-orders"]
@@ -40,14 +40,14 @@ The skill reads and writes the orchestrator's `messages.db` under the `/workspac
 
 | Table | Access | Owner |
 |-------|--------|-------|
-| `orders` | read+write | this tile |
-| `orders_metadata` (`last_checked` cursor) | read+write | this tile |
+| `orders` | read+write | this plugin |
+| `orders_metadata` (`last_checked` cursor) | read+write | this plugin |
 
-`nanoclaw-admin`'s `morning-brief` and `check-email` skills read flagged orders from the same `orders` table; those cross-tile reads resolve because admin co-loads with this overlay in the same chat via the shared store mount.
+`nanoclaw-admin`'s `morning-brief` and `check-email` skills read flagged orders from the same `orders` table; those cross-plugin reads resolve because admin co-loads with this overlay in the same chat via the shared store mount.
 
-## Cross-tile dependency
+## Cross-plugin dependency
 
-`scripts/fetch-order-emails.py` loads four shared helpers owned by `nanoclaw-admin`'s `heartbeat` skill at runtime via the co-loaded `tessl__heartbeat` tile mount:
+`scripts/fetch-order-emails.py` loads four shared helpers owned by `nanoclaw-admin`'s `heartbeat` skill at runtime via the co-loaded `tessl__heartbeat` plugin mount:
 
 - `sanitize-email-body.py` — `sanitize()`, applied to every text field inside the container before it reaches the session
 - `google-rest.py` — the native Google REST transport over the OneCLI gateway (`google_request`, `surface_url`, and the `GatewayNotInjecting` / `TierAccessRestricted` faults)
@@ -90,7 +90,7 @@ The `nightly-order-sync` cadence wrapper carries its own scripts:
 
 ## Status
 
-- **V1** — migrated `check-orders` + its `nightly-order-sync` cadence wrapper from `nanoclaw-admin` as a standalone per-chat overlay tile (`jbaruch/nanoclaw-admin#319`). The wrapper materialises one `scheduled_tasks` row in chats that load this overlay.
+- **V1** — migrated `check-orders` + its `nightly-order-sync` cadence wrapper from `nanoclaw-admin` as a standalone per-chat overlay plugin (`jbaruch/nanoclaw-admin#319`). The wrapper materialises one `scheduled_tasks` row in chats that load this overlay.
 
 See [CHANGELOG.md](CHANGELOG.md) for version history.
 
