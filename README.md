@@ -43,7 +43,7 @@ The skill reads and writes the orchestrator's `messages.db` under the `/workspac
 | `orders` | read+write | this plugin |
 | `orders_metadata` (`last_checked` cursor) | read+write | this plugin |
 
-`nanoclaw-admin`'s `morning-brief` and `check-email` skills read flagged orders from the same `orders` table; those cross-plugin reads resolve because admin co-loads with this overlay in the same chat via the shared store mount.
+`nanoclaw-admin`'s `morning-brief` and `check-email` skills read flagged orders from the same `orders` table. Admin co-loads with this overlay in the same chat via the shared store mount. The cross-plugin reads resolve through that mount.
 
 ## Cross-plugin dependency
 
