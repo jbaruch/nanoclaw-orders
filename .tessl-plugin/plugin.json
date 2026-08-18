@@ -1,0 +1,10 @@
+{
+  "name": "jbaruch/nanoclaw-orders",
+  "version": "0.1.41",
+  "description": "Order-email triage for NanoClaw: fetches order-related Gmail, maintains the orders SQLite table, and flags recent anomalies (cancellations/refunds, overdue deliveries, orders stuck in 'ordered' that never shipped), with a cadence companion that runs it on a schedule. NanoClaw per-chat overlay plugin.",
+  "private": false,
+  "skills": [
+    "skills/check-orders",
+    "skills/nightly-order-sync"
+  ]
+}
