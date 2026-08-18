@@ -6,12 +6,21 @@ Covers each row of the Step 10 rule table:
   |------------|---------------------------------------|----------------------------|--------|
   | cancelled  | -                                     | "Order cancelled"          | 14d    |
   | refunded   | -                                     | "Refund/return"            | 14d    |
-  | shipped|ordered overdue expected_delivery          | "Overdue delivery"         | 30d    |
+  | shipped|ordered overdue expected_delivery,         | "Overdue delivery"         | 30d    |
+  |            logical order not superseded (`#68`)   |                            |        |
   | ordered    | id supplied in STUCK_IDS              | "Ordered, not yet shipped" | caller |
 
 Stuck-order detection lives in `compute-stuck-orders.py` (`#55`); this
 script trusts the STUCK_IDS that script supplies (see
 test_compute_stuck_orders.py).
+
+Supersession (`#68`) is derived here, not supplied: one logical order can
+split across two rows when the shipment email's description differs from the
+confirmation's, and the stale `ordered` row goes on flagging "Overdue
+delivery" after the order shipped. The suppression tests below pin both
+halves — the split pair goes quiet, and the cases that must keep alerting
+(no `order_number`, an earlier shipment, another source, a same-status
+duplicate) still do.
 
 Plus the unflag-past-cutoff branch, the EXCLUDED_IDS env-var honour, and
 the removal of the old "Large purchase" rule (`#55`).
@@ -58,6 +67,7 @@ def _insert(db_path, **fields):
         "flagged": 0,
         "flag_reason": None,
         "last_updated": "2026-04-01T00:00:00Z",
+        "order_number": None,
     }
     defaults.update(fields)
     conn = sqlite3.connect(str(db_path))
@@ -65,7 +75,8 @@ def _insert(db_path, **fields):
         conn.execute(
             "INSERT INTO orders (id, source, status, amount, currency, description, "
             "order_date, expected_delivery, email_message_id, to_address, flagged, "
-            "flag_reason, last_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "flag_reason, last_updated, order_number) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             tuple(defaults.values()),
         )
         conn.commit()
@@ -204,6 +215,317 @@ def test_does_not_flag_overdue_past_30_days(flag_anomalies, monkeypatch, capsys)
     )
     _run(module, monkeypatch, capsys)
     assert _row(db_path, "od2") == (0, None)
+
+
+# `#68`'s real Amazon order number: the confirmation and shipment emails
+# carry it identically, which is what makes the two rows pairable at all.
+ORDER_NUMBER = "111-7318829-3305816"
+
+
+def test_overdue_suppressed_by_shipment_row_of_same_order(flag_anomalies, monkeypatch, capsys):
+    """`#68` verbatim: one Amazon order, two rows, because the shipment
+    email's description ("1 Essentials item") differs from the
+    confirmation's ("Essentials item") and the id derives from it. The
+    stale `ordered` row's expected_delivery is meaningless once the
+    shipment row exists — it must go quiet."""
+    module, db_path = flag_anomalies
+    _insert(
+        db_path,
+        id="split-ordered",
+        email_message_id="m-split-1",
+        status="ordered",
+        description="Essentials item",
+        order_date=TWENTY_DAYS_AGO,
+        expected_delivery=TEN_DAYS_AGO,
+        order_number=ORDER_NUMBER,
+    )
+    _insert(
+        db_path,
+        id="split-shipped",
+        email_message_id="m-split-2",
+        status="shipped",
+        description="1 Essentials item",
+        order_date=TEN_DAYS_AGO,
+        order_number=ORDER_NUMBER,
+    )
+    _run(module, monkeypatch, capsys)
+    assert _row(db_path, "split-ordered") == (0, None)
+
+
+def test_unflags_previously_flagged_superseded_row(flag_anomalies, monkeypatch, capsys):
+    """The row `#68` reports is already flagged from an earlier pass; the
+    first pass after the fix has to clear it, not just stop re-flagging."""
+    module, db_path = flag_anomalies
+    _insert(
+        db_path,
+        id="split-stale",
+        email_message_id="m-stale-1",
+        status="ordered",
+        order_date=TWENTY_DAYS_AGO,
+        expected_delivery=TEN_DAYS_AGO,
+        order_number=ORDER_NUMBER,
+        flagged=1,
+        flag_reason="Overdue delivery",
+    )
+    _insert(
+        db_path,
+        id="split-fresh",
+        email_message_id="m-stale-2",
+        status="shipped",
+        order_date=TEN_DAYS_AGO,
+        order_number=ORDER_NUMBER,
+    )
+    _code, out, _err = _run(module, monkeypatch, capsys)
+    assert _row(db_path, "split-stale") == (0, None)
+    assert "split-stale" in json.loads(out)["ids_unflagged"]
+
+
+def test_supersession_holds_on_a_same_day_shipment(flag_anomalies, monkeypatch, capsys):
+    """Same-day confirmation and shipment still pair: the date test is
+    "no earlier", not "strictly later"."""
+    module, db_path = flag_anomalies
+    _insert(
+        db_path,
+        id="sameday-ordered",
+        email_message_id="m-sameday-1",
+        status="ordered",
+        order_date=TEN_DAYS_AGO,
+        expected_delivery=FIVE_DAYS_AGO,
+        order_number=ORDER_NUMBER,
+    )
+    _insert(
+        db_path,
+        id="sameday-shipped",
+        email_message_id="m-sameday-2",
+        status="shipped",
+        order_date=TEN_DAYS_AGO,
+        order_number=ORDER_NUMBER,
+    )
+    _run(module, monkeypatch, capsys)
+    assert _row(db_path, "sameday-ordered") == (0, None)
+
+
+def test_excluded_shipment_row_still_supersedes(flag_anomalies, monkeypatch, capsys):
+    """A Step 6 exclusion suppresses the shipment row's own flagging, not
+    its evidence that the order shipped."""
+    module, db_path = flag_anomalies
+    _insert(
+        db_path,
+        id="exsup-ordered",
+        email_message_id="m-exsup-1",
+        status="ordered",
+        order_date=TWENTY_DAYS_AGO,
+        expected_delivery=TEN_DAYS_AGO,
+        order_number=ORDER_NUMBER,
+    )
+    _insert(
+        db_path,
+        id="exsup-shipped",
+        email_message_id="m-exsup-2",
+        status="shipped",
+        order_date=TEN_DAYS_AGO,
+        order_number=ORDER_NUMBER,
+    )
+    _run(module, monkeypatch, capsys, excluded_ids="exsup-shipped")
+    assert _row(db_path, "exsup-ordered") == (0, None)
+
+
+def test_delivered_row_supersedes_overdue_shipped_row(flag_anomalies, monkeypatch, capsys):
+    module, db_path = flag_anomalies
+    _insert(
+        db_path,
+        id="dlv-shipped",
+        email_message_id="m-dlv-1",
+        status="shipped",
+        order_date=TWENTY_DAYS_AGO,
+        expected_delivery=TEN_DAYS_AGO,
+        order_number=ORDER_NUMBER,
+    )
+    _insert(
+        db_path,
+        id="dlv-delivered",
+        email_message_id="m-dlv-2",
+        status="delivered",
+        order_date=TEN_DAYS_AGO,
+        order_number=ORDER_NUMBER,
+    )
+    _run(module, monkeypatch, capsys)
+    assert _row(db_path, "dlv-shipped") == (0, None)
+
+
+def test_assumed_delivered_row_supersedes_overdue_ordered_row(flag_anomalies, monkeypatch, capsys):
+    """`ack-orders.py`'s terminal status counts as arrival evidence too."""
+    module, db_path = flag_anomalies
+    _insert(
+        db_path,
+        id="ack-ordered",
+        email_message_id="m-ack-1",
+        status="ordered",
+        order_date=TWENTY_DAYS_AGO,
+        expected_delivery=TEN_DAYS_AGO,
+        order_number=ORDER_NUMBER,
+    )
+    _insert(
+        db_path,
+        id="ack-assumed",
+        email_message_id="m-ack-2",
+        status="assumed_delivered",
+        order_date=TEN_DAYS_AGO,
+        order_number=ORDER_NUMBER,
+    )
+    _run(module, monkeypatch, capsys)
+    assert _row(db_path, "ack-ordered") == (0, None)
+
+
+def test_overdue_still_flags_without_an_order_number(flag_anomalies, monkeypatch, capsys):
+    """A NULL `order_number` cannot be paired, so the pre-`#68` behaviour
+    stands — the alternative would be silence on unpairable rows."""
+    module, db_path = flag_anomalies
+    _insert(
+        db_path,
+        id="nonum-ordered",
+        email_message_id="m-nonum-1",
+        status="ordered",
+        order_date=TWENTY_DAYS_AGO,
+        expected_delivery=TEN_DAYS_AGO,
+    )
+    _insert(
+        db_path,
+        id="nonum-shipped",
+        email_message_id="m-nonum-2",
+        status="shipped",
+        order_date=TEN_DAYS_AGO,
+    )
+    _run(module, monkeypatch, capsys)
+    assert _row(db_path, "nonum-ordered") == (1, "Overdue delivery")
+
+
+def test_overdue_flags_when_the_shipment_predates_the_order(flag_anomalies, monkeypatch, capsys):
+    """An older shipment cannot vouch for a later order that reuses the
+    merchant's order number."""
+    module, db_path = flag_anomalies
+    _insert(
+        db_path,
+        id="older-ordered",
+        email_message_id="m-older-1",
+        status="ordered",
+        order_date=TEN_DAYS_AGO,
+        expected_delivery=FIVE_DAYS_AGO,
+        order_number=ORDER_NUMBER,
+    )
+    _insert(
+        db_path,
+        id="older-shipped",
+        email_message_id="m-older-2",
+        status="shipped",
+        order_date=TWENTY_DAYS_AGO,
+        order_number=ORDER_NUMBER,
+    )
+    _run(module, monkeypatch, capsys)
+    assert _row(db_path, "older-ordered") == (1, "Overdue delivery")
+
+
+def test_overdue_flags_when_the_shipment_is_another_source(flag_anomalies, monkeypatch, capsys):
+    """Logical-order identity is `(source, order_number)` — a Shopify order
+    numbered the same as an Amazon one is a different order."""
+    module, db_path = flag_anomalies
+    _insert(
+        db_path,
+        id="xsrc-ordered",
+        email_message_id="m-xsrc-1",
+        status="ordered",
+        source="amazon",
+        order_date=TWENTY_DAYS_AGO,
+        expected_delivery=TEN_DAYS_AGO,
+        order_number=ORDER_NUMBER,
+    )
+    _insert(
+        db_path,
+        id="xsrc-shipped",
+        email_message_id="m-xsrc-2",
+        status="shipped",
+        source="shopify",
+        order_date=TEN_DAYS_AGO,
+        order_number=ORDER_NUMBER,
+    )
+    _run(module, monkeypatch, capsys)
+    assert _row(db_path, "xsrc-ordered") == (1, "Overdue delivery")
+
+
+def test_duplicate_shipped_rows_do_not_silence_each_other(flag_anomalies, monkeypatch, capsys):
+    """Supersession needs a strictly further-along status. Two `shipped`
+    rows of one order are the same split-row accident, and treating either
+    as evidence for the other would take a genuinely overdue delivery
+    silent — the failure mode this rule must never have."""
+    module, db_path = flag_anomalies
+    _insert(
+        db_path,
+        id="dup-shipped-1",
+        email_message_id="m-dup-1",
+        status="shipped",
+        order_date=TWENTY_DAYS_AGO,
+        expected_delivery=TEN_DAYS_AGO,
+        order_number=ORDER_NUMBER,
+    )
+    _insert(
+        db_path,
+        id="dup-shipped-2",
+        email_message_id="m-dup-2",
+        status="shipped",
+        order_date=TEN_DAYS_AGO,
+        order_number=ORDER_NUMBER,
+    )
+    _run(module, monkeypatch, capsys)
+    assert _row(db_path, "dup-shipped-1") == (1, "Overdue delivery")
+
+
+def test_unreadable_order_date_does_not_supersede(flag_anomalies, monkeypatch, capsys):
+    """A date that cannot be compared must not be the reason an order goes
+    quiet — same degrade-to-noisy stance the other type guards take."""
+    module, db_path = flag_anomalies
+    _insert(
+        db_path,
+        id="baddate-ordered",
+        email_message_id="m-baddate-1",
+        status="ordered",
+        order_date=TWENTY_DAYS_AGO,
+        expected_delivery=TEN_DAYS_AGO,
+        order_number=ORDER_NUMBER,
+    )
+    _insert(
+        db_path,
+        id="baddate-shipped",
+        email_message_id="m-baddate-2",
+        status="shipped",
+        order_date="delivery pending",
+        order_number=ORDER_NUMBER,
+    )
+    _run(module, monkeypatch, capsys)
+    assert _row(db_path, "baddate-ordered") == (1, "Overdue delivery")
+
+
+def test_supersession_does_not_gate_the_supplied_stuck_signal(flag_anomalies, monkeypatch, capsys):
+    """Only the Overdue rule consults supersession. Step 8 owns the stuck
+    pairing, and this script flags the ids it is handed verbatim."""
+    module, db_path = flag_anomalies
+    _insert(
+        db_path,
+        id="stuck-superseded",
+        email_message_id="m-stucksup-1",
+        status="ordered",
+        order_date=FORTY_FIVE_DAYS_AGO,
+        order_number=ORDER_NUMBER,
+    )
+    _insert(
+        db_path,
+        id="stuck-shipment",
+        email_message_id="m-stucksup-2",
+        status="shipped",
+        order_date=TEN_DAYS_AGO,
+        order_number=ORDER_NUMBER,
+    )
+    _run(module, monkeypatch, capsys, stuck_ids="stuck-superseded")
+    assert _row(db_path, "stuck-superseded") == (1, "Ordered, not yet shipped")
 
 
 def test_excluded_ids_env_var_skips_flagging(flag_anomalies, monkeypatch, capsys):

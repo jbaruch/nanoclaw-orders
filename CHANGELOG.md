@@ -1,5 +1,17 @@
 # Changelog
 
+All notable changes to this plugin are documented here.
+
+### Fixed — `check-orders` stops flagging an order that already shipped on a second row
+
+`jbaruch/nanoclaw-orders#68`: the morning brief led with `Amazon Essentials item · просрочено` for an order that had shipped nine days earlier. Both facts were in the table, on two different rows. The row id is `{source}-{order_date}-{sha1(description)[:8]}` (`compute-order-id.py`), and Amazon described the same purchase as "1 Essentials item" in the shipment email where the confirmation said "Essentials item" — one character, a different SHA-1 prefix, a second row. The shipment landed beside the confirmation instead of on top of it, so the `ordered` row kept the `expected_delivery` it was born with and `flag-anomalies.py` went on applying the Overdue-delivery rule to it on its own merits. The rule never asked whether the rest of the order had moved on.
+
+`compute-stuck-orders.py` has asked exactly that since `#55` — it pairs an order's rows on the persisted `(source, order_number)` key, so a confirmation whose shipment exists is never "stuck". The Overdue rule never got the same treatment; it has it now. A `shipped`/`ordered` row is skipped when a sibling on the same `(source, order_number)` key carries a strictly further-along status — `ordered` < `shipped` < `delivered`/`assumed_delivered`, the last two ranked together since `ack-orders.py` writes one for a delivery the owner confirmed out of band — and an `order_date` no earlier than its own. Rows already flagged from an earlier pass unflag rather than merely stopping their re-flagging, so the live case clears itself without the manual `ack-orders.py` transition that closed it by hand.
+
+Both halves of the test are load-bearing. Strictness is what keeps two `shipped` rows of one split order from vouching for each other: the same duplicate-row accident must never be the reason a genuinely overdue delivery goes silent, which is the failure mode that would cost more than the noise this removes. The no-earlier date test keeps an old shipment from covering a later re-order that reuses the merchant's order number. A blank `order_number` cannot be paired at all and keeps flagging exactly as before, as does a row whose `order_date` will not parse — a date that cannot be read is never grounds for silence. Supersession gates the Overdue rule alone: a cancellation or refund is that row's own news, and the stuck rule already applied this pairing upstream, so `STUCK_IDS` is still flagged verbatim.
+
+The issue's secondary observation — that Amazon's privacy-masked "Essentials item" description carries no signal even on a correctly-tracked order — is a rendering question rather than a flagging one, tracked separately in `#69`.
+
 ## 0.1.42 — 2026-08-18
 
 ### Chore — migrate from `tile.json` to `.tessl-plugin/plugin.json` (`jbaruch/nanoclaw-core#97`)
@@ -15,8 +27,6 @@ Terminology reconciliation (skill Step 2): package-sense "tile" → "plugin" acr
 `.gitignore` excluded `tessl.json`, so the repo carried no committed declaration of what it depends on, and `hooks/check-tessl-latest.sh` in `jbaruch/coding-policy` — the deterministic enforcement for the Runtime-Managed Manifest Carve-Out — took its "no manifest, not a consumer" silent no-op path every session. With nothing watching, the untracked local manifest drifted to `"mode": "vendored"` with literal version pins.
 
 The manifest is now committed and `"mode": "managed"`. Every `jbaruch/*` dependency floats at `latest` under the carve-out; `finsi/codex-review` is third-party and stays pinned, with its renewal cadence recorded in `README.md`. The ignore file keeps the manifest out of the published package.
-
-All notable changes to this tile are documented here.
 
 ## 0.1.39 — 2026-08-13
 
