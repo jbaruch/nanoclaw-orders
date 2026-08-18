@@ -5,7 +5,7 @@ addopts = "-ra --strict-markers"
 [tool.ruff]
 # Cover both shipped Python (skills/) and test code (tests/) per
 # `jbaruch/coding-policy: code-formatting` — every Python file the
-# tile actually ships goes through lint + format check, not just
+# plugin actually ships goes through lint + format check, not just
 # tests. Shipped scripts live under skills/check-orders/scripts/ and
 # skills/nightly-order-sync/scripts/; new skill scripts inherit
 # coverage automatically.

@@ -69,7 +69,7 @@ from datetime import datetime, timedelta, timezone
 DB_PATH = os.environ.get("ORDERS_DB_PATH", "/workspace/store/messages.db")
 
 # Shared helpers owned by the heartbeat skill, consumed cross-skill over
-# the co-loaded `tessl__heartbeat` tile mount, with a repo-relative
+# the co-loaded `tessl__heartbeat` plugin mount, with a repo-relative
 # fallback for tests / dev clones. If any can't load, main() fails closed.
 _SCRIPTS = pathlib.Path(__file__).resolve().parent
 _SKILLS_ROOT = _SCRIPTS.parents[1]

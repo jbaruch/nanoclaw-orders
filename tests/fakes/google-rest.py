@@ -1,7 +1,7 @@
 """Local test double for heartbeat's google-rest.py.
 
 fetch-order-emails.py loads the real module at runtime from the co-loaded
-`tessl__heartbeat` tile mount; this tile does not ship it. This fake
+`tessl__heartbeat` plugin mount; this plugin does not ship it. This fake
 exposes the exact surface the script touches — `GatewayNotInjecting`,
 `TierAccessRestricted`, `surface_url()`, `google_request()` — so the
 module-load path is testable locally without the heartbeat sibling

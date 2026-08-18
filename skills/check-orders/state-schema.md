@@ -27,7 +27,7 @@ Two well-known keys, both holding ISO-8601 UTC timestamps in the Z-suffixed mill
 
 ### Owner skill
 
-`tessl__check-orders` is the single owner of the kv shape — it's the only skill that writes either key, and the only skill in this tile that reads `last_checked`. `morning-brief` reads `orders` rows (flagged-orders) but not `orders_metadata`.
+`tessl__check-orders` is the single owner of the kv shape — it's the only skill that writes either key, and the only skill in this plugin that reads `last_checked`. `morning-brief` reads `orders` rows (flagged-orders) but not `orders_metadata`.
 
 ### Writer / reader contract
 

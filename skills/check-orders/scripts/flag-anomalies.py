@@ -126,7 +126,7 @@ def _snooze_open(snooze_until) -> bool:
 def _has_snooze_column(conn) -> bool:
     """True iff the `orders` table carries `snooze_until` (`state-018`).
 
-    Absent means "nothing is snoozed", never an error — the tile runs
+    Absent means "nothing is snoozed", never an error — the plugin runs
     against databases the orchestrator has not migrated yet
     (`coding-policy: stateful-artifacts` reader discipline).
     """

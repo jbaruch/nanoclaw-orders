@@ -391,7 +391,7 @@ def test_malformed_snooze_does_not_suppress(compute_stuck_orders, monkeypatch, c
 
 
 def test_runs_against_pre_state_018_schema(compute_stuck_orders_legacy, monkeypatch, capsys):
-    # Cross-pipeline reader discipline: the tile keeps working against a
+    # Cross-pipeline reader discipline: the plugin keeps working against a
     # database the orchestrator has not migrated yet. An absent column
     # means "nothing is snoozed", never an error.
     module, db_path = compute_stuck_orders_legacy
