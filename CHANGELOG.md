@@ -2,6 +2,8 @@
 
 All notable changes to this plugin are documented here.
 
+## 0.1.44 — 2026-08-27
+
 ### Retired — final release
 
 This plugin is retired. The repository is archived immediately after this publishes. It flagged cancellations, refunds, large purchases, and overdue deliveries out of order-related Gmail. The flags were wrong in both directions often enough that the operator stopped reading the section, which is the only measure that mattered.
