@@ -1,6 +1,6 @@
 {
   "name": "jbaruch/nanoclaw-orders",
-  "version": "0.1.43",
+  "version": "0.1.44",
   "description": "RETIRED \u2014 do not install: this order-email triage overlay for NanoClaw is archived, and the `orders` tables it writes were dropped by jbaruch/nanoclaw's state-019, so an install against a current NanoClaw fails at the first write.",
   "private": false,
   "skills": [
