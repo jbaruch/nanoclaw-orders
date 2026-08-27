@@ -1,15 +1,16 @@
 # jbaruch/nanoclaw-orders
 
+[![tessl](https://img.shields.io/endpoint?url=https%3A%2F%2Fapi.tessl.io%2Fv1%2Fbadges%2Fjbaruch%2Fnanoclaw-orders)](https://tessl.io/registry/jbaruch/nanoclaw-orders)
+
 > ## ⚠️ Retired — do not install
 >
-> This overlay is retired and this repository is archived. It produced false positives and false negatives at a rate that buried whatever signal it had: the nightly stuck-order alert re-dumped the entire `ordered` backlog every run (#61), and four rounds of tuning — auto-resolve for aged never-shipped rows, owner-ack to `assumed_delivered`, never-ship-email heuristics (#62), a `snooze_until` column for acknowledged-but-genuinely-open orders (`jbaruch/nanoclaw#917`, #63), and overdue-flag suppression on superseded rows (#68) — each landed correctly without moving the ratio.
+> This plugin is retired and this repository is archived. Nothing replaces it.
 >
-> The `orders` and `orders_metadata` tables it wrote are dropped by `jbaruch/nanoclaw`'s `state-019-drop-orders`, and `jbaruch/nanoclaw-admin` no longer reads them (`morning-brief`'s orders section and `check-email`'s order cross-reference are gone). Installing this plugin against a current NanoClaw will fail at the first write: the tables do not exist.
+> The `orders` and `orders_metadata` tables it writes no longer exist — `jbaruch/nanoclaw`'s `state-019-drop-orders` dropped them, and `jbaruch/nanoclaw-admin` no longer reads them. An install against a current NanoClaw fails at the first write.
 >
-> Nothing replaces it. The documentation below is kept as-is for anyone reading the history.
-
-
-[![tessl](https://img.shields.io/endpoint?url=https%3A%2F%2Fapi.tessl.io%2Fv1%2Fbadges%2Fjbaruch%2Fnanoclaw-orders)](https://tessl.io/registry/jbaruch/nanoclaw-orders)
+> Why it was retired, and the teardown record: `CHANGELOG.md`.
+>
+> The documentation below is kept as-is for anyone reading the history.
 
 Order-email triage for NanoClaw. Fetches order-related Gmail, keeps the `orders` SQLite table current, and flags recent anomalies — cancellations/refunds, overdue deliveries, and orders stuck in `ordered` that never shipped — surfacing only the flagged events so the alert channel stays signal-only.
 
