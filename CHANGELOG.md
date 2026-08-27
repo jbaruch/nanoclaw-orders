@@ -2,6 +2,23 @@
 
 All notable changes to this plugin are documented here.
 
+### Retired — final release
+
+This plugin is retired and the repository is archived after this publishes. It flagged cancellations, refunds, large purchases, and overdue deliveries out of order-related Gmail. The flags were wrong in both directions often enough that the operator stopped reading the section, which is the only measure that mattered.
+
+#61 is the representative failure: the nightly stuck-order alert re-dumped the whole `ordered` backlog every run. Four rounds of tuning followed and each one was a correct fix to a real bug — #62's auto-resolve for aged never-shipped rows, owner-ack to `assumed_delivered`, and never-ship-email heuristics; `jbaruch/nanoclaw#917`'s `snooze_until` column, the third state for an order the owner has acknowledged that is genuinely still not shipped; #68's overdue-flag suppression on superseded rows. None of them changed the signal-to-noise ratio. At that point the argument stops being about the next patch.
+
+What the teardown did, in order:
+
+- `jbaruch/nanoclaw-admin#519` removed every reader — `morning-brief`'s `orders` gather source and its `📦 Заказы` section, `check-email`'s order cross-reference, `system-audit`'s `orders.*` required-field checks. Published as 0.1.502.
+- `jbaruch/nanoclaw#935` added `state-019-drop-orders`, which drops `orders` and `orders_metadata`, and removed the `orders-db.json` importer and the dump-contract entries. Deployed; the live DB is at `user_version` 19 with no orders tables.
+- The overlay came out of the operator's `containerConfig.additionalTiles` and its `nightly-order-sync` cadence row was deleted.
+
+The 321 production rows were dumped before the drop and kept outside this repo.
+
+Installing this plugin against a current NanoClaw will fail at the first write — the tables it expects do not exist. Nothing replaces it.
+
+
 ## 0.1.43 — 2026-08-18
 
 ### Fixed — `check-orders` stops flagging an order that already shipped on a second row

@@ -1,7 +1,7 @@
 {
   "name": "jbaruch/nanoclaw-orders",
   "version": "0.1.43",
-  "description": "Order-email triage for NanoClaw as a per-chat overlay plugin: fetches order-related Gmail, maintains the orders SQLite table, flags recent anomalies (cancellations/refunds, overdue deliveries, orders stuck in 'ordered' that never shipped), and ships a cadence companion that runs it on a schedule.",
+  "description": "RETIRED \u2014 do not install. Order-email triage for NanoClaw as a per-chat overlay plugin: fetches order-related Gmail, maintains the orders SQLite table, flags recent anomalies (cancellations/refunds, overdue deliveries, orders stuck in 'ordered' that never shipped), and ships a cadence companion that runs it on a schedule. The orders tables were dropped by jbaruch/nanoclaw state-019; this plugin cannot run against a current NanoClaw.",
   "private": false,
   "skills": [
     "skills/check-orders",
