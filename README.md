@@ -2,6 +2,16 @@
 
 [![tessl](https://img.shields.io/endpoint?url=https%3A%2F%2Fapi.tessl.io%2Fv1%2Fbadges%2Fjbaruch%2Fnanoclaw-orders)](https://tessl.io/registry/jbaruch/nanoclaw-orders)
 
+> ## ⚠️ Retired — do not install
+>
+> This plugin is retired and this repository is archived read-only. Nothing replaces it.
+>
+> The `orders` and `orders_metadata` tables it writes no longer exist. `jbaruch/nanoclaw`'s `state-019-drop-orders` dropped them; `jbaruch/nanoclaw-admin` no longer reads them. An install against a current NanoClaw fails at the first write.
+>
+> Why it was retired, and the teardown record: `CHANGELOG.md`.
+>
+> The documentation below is kept as-is for anyone reading the history.
+
 Order-email triage for NanoClaw. Fetches order-related Gmail, keeps the `orders` SQLite table current, and flags recent anomalies — cancellations/refunds, overdue deliveries, and orders stuck in `ordered` that never shipped — surfacing only the flagged events so the alert channel stays signal-only.
 
 Per-chat overlay plugin. Install via NanoClaw's `containerConfig.additionalTiles` mechanism.
