@@ -26,7 +26,7 @@ The 321 production rows were dumped before the drop and kept outside this repo.
 
 Installing this plugin against a current NanoClaw will fail at the first write — the tables it expects do not exist. Nothing replaces it.
 
-The README banner stays short and points here, per `context-writing-style`: the README is auto-loaded on plugin fetch, so incident history and the four-round rationale belong in this archive rather than on that surface. The registry badge keeps its place directly under the H1 per `context-artifacts`, and the manifest description is one sentence per the `plugin.json` contract. All three were policy-reviewer advisories on #74 — folded in rather than deferred, because archiving removes the follow-up round a deferral assumes.
+The README banner stays short and points here, per `context-writing-style`: the README is auto-loaded on plugin fetch, so the incident history and the rationale belong in this archive rather than on that surface. The registry badge keeps its place directly under the H1 per `context-artifacts`, and the manifest description is one sentence per the `plugin.json` contract. All three were policy-reviewer advisories on #74 — folded in rather than deferred, because archiving removes the follow-up round a deferral assumes.
 
 
 ## 0.1.43 — 2026-08-18
