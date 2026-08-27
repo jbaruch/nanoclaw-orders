@@ -4,7 +4,7 @@
 
 > ## ⚠️ Retired — do not install
 >
-> This plugin is retired and this repository is archived. Nothing replaces it.
+> This plugin is retired and this repository is archived read-only. Nothing replaces it.
 >
 > The `orders` and `orders_metadata` tables it writes no longer exist — `jbaruch/nanoclaw`'s `state-019-drop-orders` dropped them, and `jbaruch/nanoclaw-admin` no longer reads them. An install against a current NanoClaw fails at the first write.
 >

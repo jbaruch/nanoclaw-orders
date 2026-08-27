@@ -4,9 +4,17 @@ All notable changes to this plugin are documented here.
 
 ### Retired — final release
 
-This plugin is retired and the repository is archived after this publishes. It flagged cancellations, refunds, large purchases, and overdue deliveries out of order-related Gmail. The flags were wrong in both directions often enough that the operator stopped reading the section, which is the only measure that mattered.
+This plugin is retired. The repository is archived immediately after this publishes. It flagged cancellations, refunds, large purchases, and overdue deliveries out of order-related Gmail. The flags were wrong in both directions often enough that the operator stopped reading the section, which is the only measure that mattered.
 
-#61 is the representative failure: the nightly stuck-order alert re-dumped the whole `ordered` backlog every run. Four rounds of tuning followed and each one was a correct fix to a real bug — #62's auto-resolve for aged never-shipped rows, owner-ack to `assumed_delivered`, and never-ship-email heuristics; `jbaruch/nanoclaw#917`'s `snooze_until` column, the third state for an order the owner has acknowledged that is genuinely still not shipped; #68's overdue-flag suppression on superseded rows. None of them changed the signal-to-noise ratio. At that point the argument stops being about the next patch.
+#61 is the representative failure: the stuck-`ordered` flag had no age ceiling and no ack memory, so the nightly alert re-dumped months-old orders every run. Three rounds of tuning followed and each was a correct fix to a real bug:
+
+- **#62** — drain the stuck-`ordered` pool and persist owner acks (auto-resolve for aged never-shipped rows, owner-ack to `assumed_delivered`).
+- **#63 / #64** — never-ship-merchant heuristics, plus consumption of the `snooze_until` marker whose column `jbaruch/nanoclaw#917` added. `snooze_until` is the third state: an order the owner has seen and acknowledged that is genuinely still not shipped, where `assumed_delivered` would record a delivery that never happened and `ordered` re-flags it nightly.
+- **#68** — suppress overdue flags on superseded rows.
+
+None of them changed the signal-to-noise ratio. At that point the argument stops being about the next patch.
+
+(An earlier version of this entry, and the corresponding entries in `jbaruch/nanoclaw` and `jbaruch/nanoclaw-admin`, credited the never-ship heuristics to #62. They were #63/#64; #62 was the drain-and-ack change. Caught by Copilot on #74.)
 
 What the teardown did, in order:
 
